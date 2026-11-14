@@ -1,0 +1,6 @@
+package-as: QuestBuffer
+ignore:
+  - tests
+  - logo.png
+  - dist
+  - .gitignore

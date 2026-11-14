@@ -1,5 +1,7 @@
 # QuestBuffer
 
+<img src="logo.png" alt="QuestBuffer" width="200">
+
 Addon de WoW Forever para compartir varias misiones con el grupo sin que fallen.
 
 El servidor solo permite **una** misión compartida pendiente por jugador; la segunda recibe "X está ocupado". QuestBuffer arregla esto en los dos lados:

@@ -3,7 +3,9 @@
 ## Notes: Shares party quests one by one (queue) and lets you accept or decline all of them at once. Works with Dialogue UI.
 ## Author: Andressance
 ## Version: 0.1.0
-## OptionalDeps: DialogueUI
+## OptionalDeps: DialogueUI, Questie
+## IconTexture: Interface\AddOns\QuestBuffer\Media\Icon
+## X-Website: https://github.com/Andressance/questbuffer
 
 QuestBuffer.lua
 ShareWindow.lua
