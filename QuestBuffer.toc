@@ -5,8 +5,10 @@
 ## Version: 0.1.0
 ## OptionalDeps: DialogueUI, Questie
 ## IconTexture: Interface\AddOns\QuestBuffer\Media\Icon
+## SavedVariables: QuestBufferDB
 ## X-License: MIT
 ## X-Website: https://github.com/Andressance/questbuffer
 
 QuestBuffer.lua
 ShareWindow.lua
+MinimapButton.lua

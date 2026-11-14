@@ -17,15 +17,17 @@ local L = { acceptAll = "Accept all", declineAll = "Decline all", from = "%s sha
 	cantShare = "QuestBuffer: you must be in a group to share.",
 	title = "Share quests", shareSelected = "Share selected (%d)", shareAll = "Share all",
 	selectAll = "All", selectNone = "None", selectDungeon = "Dungeons", select = "Select", share = "Share",
-	zone = "Zone", level = "Level", starts = "Starts", complete = "Complete" }
+	zone = "Zone", level = "Level", starts = "Starts", complete = "Complete",
+	minimapTip = "Click: share quests. Drag: move." }
 if GetLocale():sub(1, 2) == "es" then
 	L = { acceptAll = "Aceptar todas", declineAll = "Borrar todas", from = "%s comparte: %s",
 		autoAccept = "Aceptando todas las misiones compartidas...", autoDecline = "Borrando todas las misiones compartidas...",
-		queued = "QuestBuffer: %d mision(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada.",
+		queued = "QuestBuffer: %d misión(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada.",
 		cantShare = "QuestBuffer: tienes que estar en grupo para compartir.",
-		title = "Compartir misiones", shareSelected = "Compartir seleccion (%d)", shareAll = "Compartir todas",
+		title = "Compartir misiones", shareSelected = "Compartir selección (%d)", shareAll = "Compartir todas",
 		selectAll = "Todas", selectNone = "Ninguna", selectDungeon = "Mazmorras", select = "Marcar", share = "Compartir",
-		zone = "Zona", level = "Nivel", starts = "Empieza", complete = "Completada" }
+		zone = "Zona", level = "Nivel", starts = "Empieza", complete = "Completada",
+		minimapTip = "Clic: compartir misiones. Arrastrar: mover." }
 end
 ns.L = L
 
@@ -217,6 +219,8 @@ SlashCmdList.QUESTBUFFER = function(arg)
 			print(key .. " = " .. tostring(_G[key]))
 		end
 		print("QuestUtil.ShareQuest: " .. tostring(realShare ~= nil) .. ", QuestLogPushQuest: " .. tostring(realPush ~= nil))
+	elseif arg == "minimap" then
+		ns.toggleMinimap()
 	else
 		ns.toggleWindow()
 	end

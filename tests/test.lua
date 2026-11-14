@@ -4,8 +4,8 @@
 local function stub() return setmetatable({}, { __index = function() return stub() end, __call = function() return stub() end }) end
 
 local frames, timers, printed = {}, {}, {}
-local function newFrame()
-	local f = { handlers = {}, shown = true, checked = false, enabled = true }
+local function newFrame(_, name)
+	local f = { handlers = {}, shown = true, checked = false, enabled = true, name = name }
 	function f:SetScript(n, fn) self.handlers[n] = fn end
 	function f:Show() self.shown = true if self.handlers.OnShow then self.handlers.OnShow(self) end end
 	function f:Hide() self.shown = false end
@@ -42,6 +42,9 @@ wipe = function(t) for k in pairs(t) do t[k] = nil end end
 tinsert = table.insert
 UISpecialFrames, UIParent, SlashCmdList, GameTooltip = {}, {}, {}, stub()
 CreateFrame = newFrame
+local cursorX, cursorY = 0, 0
+Minimap = { GetCenter = function() return 100, 100 end, GetWidth = function() return 140 end, GetEffectiveScale = function() return 1 end }
+GetCursorPosition = function() return cursorX, cursorY end
 Enum = { QuestTag = { Dungeon = 1, Raid = 62 } }
 GetQuestDifficultyColor = function() return { r = 1, g = 0.5, b = 0.25 } end
 C_Map = { GetAreaInfo = function(id) return id == 12 and "Elwynn Forest" or nil end }
@@ -77,6 +80,7 @@ DeclineQuest = function() declines = declines + 1 end
 local ns = {}
 assert(loadfile("QuestBuffer.lua"))("QuestBuffer", ns)
 assert(loadfile("ShareWindow.lua"))("QuestBuffer", ns)
+assert(loadfile("MinimapButton.lua"))("QuestBuffer", ns)
 
 local function run(delay) -- fire pending timers with this delay
 	local todo = {}
