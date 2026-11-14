@@ -4,6 +4,9 @@
 -- Receiver side: a small panel with "Accept all" / "Decline all" answers the rest of the batch.
 -- Only listens to game events and calls AcceptQuest/DeclineQuest, so it works with Dialogue UI
 -- (or the default quest frame) without touching either.
+-- The batch share window lives in ShareWindow.lua and talks to this file through `ns`.
+
+local _, ns = ...
 
 local ANSWER_TIMEOUT = 60 -- sharer: give up waiting for slow/absent recipients (shortcut: fixed, no option)
 local AUTO_TIMEOUT = 15 -- receiver: "all" mode ends this long after the last quest it answered
@@ -11,16 +14,23 @@ local AUTO_TIMEOUT = 15 -- receiver: "all" mode ends this long after the last qu
 local L = { acceptAll = "Accept all", declineAll = "Decline all", from = "%s shares: %s",
 	autoAccept = "Accepting all shared quests...", autoDecline = "Declining all shared quests...",
 	queued = "QuestBuffer: %d shared quest(s) queued.", cleared = "QuestBuffer: queue cleared.",
-	title = "Share quests", shareSelected = "Share selected", cantShare = "QuestBuffer: you must be in a group to share." }
+	cantShare = "QuestBuffer: you must be in a group to share.",
+	title = "Share quests", shareSelected = "Share selected (%d)", shareAll = "Share all",
+	selectAll = "All", selectNone = "None", selectDungeon = "Dungeons", select = "Select", share = "Share",
+	zone = "Zone", level = "Level", starts = "Starts", complete = "Complete" }
 if GetLocale():sub(1, 2) == "es" then
 	L = { acceptAll = "Aceptar todas", declineAll = "Borrar todas", from = "%s comparte: %s",
 		autoAccept = "Aceptando todas las misiones compartidas...", autoDecline = "Borrando todas las misiones compartidas...",
 		queued = "QuestBuffer: %d mision(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada.",
-		title = "Compartir misiones", shareSelected = "Compartir seleccion", cantShare = "QuestBuffer: tienes que estar en grupo para compartir." }
+		cantShare = "QuestBuffer: tienes que estar en grupo para compartir.",
+		title = "Compartir misiones", shareSelected = "Compartir seleccion (%d)", shareAll = "Compartir todas",
+		selectAll = "Todas", selectNone = "Ninguna", selectDungeon = "Mazmorras", select = "Marcar", share = "Compartir",
+		zone = "Zona", level = "Nivel", starts = "Empieza", complete = "Completada" }
 end
+ns.L = L
 
 ---------------------------------------------------------------- sharer: queue
-local queue, waiting, expected, settled, timer = {}, false, {}, false, nil
+local queue, waiting, expected, settled, timer, current = {}, false, {}, false, nil, nil
 
 -- Turn a GlobalString like "%s has declined your quest." into a Lua pattern capturing the name.
 local function pattern(key)
@@ -56,14 +66,15 @@ end
 
 local function finish()
 	if timer then timer:Cancel() end
-	waiting = false
+	waiting, current = false, nil
 	pump()
 end
 
 function pump()
 	if waiting or not queue[1] then return end
 	waiting, expected, settled = true, {}, false
-	send(table.remove(queue, 1))
+	current = table.remove(queue, 1)
+	send(current)
 	timer = C_Timer.NewTimer(ANSWER_TIMEOUT, finish)
 	-- failure replies (already on quest, too far...) arrive instantly; if nobody was actually prompted, move on
 	C_Timer.After(1.5, function()
@@ -72,10 +83,19 @@ function pump()
 	end)
 end
 
-local function enqueue(questID)
+local function enqueue(questID, quiet)
+	if questID == current then return end -- already out / already queued: not twice
+	for _, id in ipairs(queue) do if id == questID then return end end
 	queue[#queue + 1] = questID
-	print(L.queued:format(#queue + (waiting and 1 or 0)))
+	if not quiet then print(L.queued:format(#queue + (waiting and 1 or 0))) end
 	pump()
+end
+
+-- Used by the share window: queue several quests, announce once.
+function ns.share(ids)
+	if not (canShare and IsInGroup()) then return print(L.cantShare) end
+	for _, id in ipairs(ids) do enqueue(id, true) end
+	print(L.queued:format(#queue + (waiting and 1 or 0)))
 end
 
 if realShare then
@@ -184,70 +204,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
 	refresh()
 end)
 
----------------------------------------------------------------- sharer: batch window
-local win = CreateFrame("Frame", "QuestBufferShareFrame", UIParent, "BasicFrameTemplateWithInset")
-win:SetSize(320, 420)
-win:SetPoint("CENTER")
-win:SetMovable(true)
-win:EnableMouse(true)
-win:RegisterForDrag("LeftButton")
-win:SetScript("OnDragStart", win.StartMoving)
-win:SetScript("OnDragStop", win.StopMovingOrSizing)
-win.TitleText:SetText(L.title)
-tinsert(UISpecialFrames, "QuestBufferShareFrame") -- Esc closes it
-
-local scroll = CreateFrame("ScrollFrame", nil, win, "UIPanelScrollFrameTemplate")
-scroll:SetPoint("TOPLEFT", 12, -32)
-scroll:SetPoint("BOTTOMRIGHT", -32, 44)
-local list = CreateFrame("Frame", nil, scroll)
-list:SetSize(250, 1)
-scroll:SetScrollChild(list)
-
-local ROW = 24
-local rows = {}
-local function populate()
-	local n = 0
-	for i = 1, C_QuestLog.GetNumQuestLogEntries() do
-		local info = C_QuestLog.GetInfo(i)
-		if info and not info.isHeader and not info.isHidden and C_QuestLog.IsPushableQuest(info.questID) then
-			n = n + 1
-			local row = rows[n]
-			if not row then
-				row = CreateFrame("CheckButton", nil, list, "UICheckButtonTemplate")
-				row:SetPoint("TOPLEFT", 0, -(n - 1) * ROW)
-				row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-				row.label:SetPoint("LEFT", row, "RIGHT", 2, 0)
-				row.label:SetWidth(200)
-				row.label:SetJustifyH("LEFT")
-				row.label:SetWordWrap(false)
-				rows[n] = row
-			end
-			row.questID = info.questID
-			row.label:SetText(info.title)
-			row:SetChecked(false)
-			row:Show()
-		end
-	end
-	for i = n + 1, #rows do rows[i]:Hide() end
-	list:SetHeight(math.max(n * ROW, 1))
-end
-win:SetScript("OnShow", populate)
-
-local share = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-share:SetSize(160, 24)
-share:SetPoint("BOTTOM", 0, 12)
-share:SetText(L.shareSelected)
-share:SetScript("OnClick", function()
-	if not (canShare and IsInGroup()) then return print(L.cantShare) end
-	for _, row in ipairs(rows) do
-		if row:IsShown() and row:GetChecked() then
-			enqueue(row.questID)
-			row:SetChecked(false)
-		end
-	end
-end)
-win:Hide()
-
+---------------------------------------------------------------- slash
 SLASH_QUESTBUFFER1 = "/qb"
 SlashCmdList.QUESTBUFFER = function(arg)
 	if arg == "clear" then
@@ -261,6 +218,6 @@ SlashCmdList.QUESTBUFFER = function(arg)
 		end
 		print("QuestUtil.ShareQuest: " .. tostring(realShare ~= nil) .. ", QuestLogPushQuest: " .. tostring(realPush ~= nil))
 	else
-		win:SetShown(not win:IsShown())
+		ns.toggleWindow()
 	end
 end

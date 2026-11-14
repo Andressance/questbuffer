@@ -1,11 +1,11 @@
 -- Run from the repo root: lua tests/test.lua
--- Mocks just enough of the WoW API to drive QuestBuffer.lua. The ERR_QUEST_PUSH_* strings below are
--- stand-ins: this checks the logic, not that the real client uses these exact texts.
+-- Mocks just enough of the WoW API to drive QuestBuffer.lua and ShareWindow.lua. The ERR_QUEST_PUSH_*
+-- strings below are stand-ins: this checks the logic, not that the real client uses these exact texts.
 local function stub() return setmetatable({}, { __index = function() return stub() end, __call = function() return stub() end }) end
 
 local frames, timers, printed = {}, {}, {}
 local function newFrame()
-	local f = { handlers = {}, shown = true, checked = false }
+	local f = { handlers = {}, shown = true, checked = false, enabled = true }
 	function f:SetScript(n, fn) self.handlers[n] = fn end
 	function f:Show() self.shown = true if self.handlers.OnShow then self.handlers.OnShow(self) end end
 	function f:Hide() self.shown = false end
@@ -13,19 +13,43 @@ local function newFrame()
 	function f:SetShown(v) if v then self:Show() else self:Hide() end end
 	function f:SetChecked(v) self.checked = v end
 	function f:GetChecked() return self.checked end
+	function f:SetText(t) self.text = t end
+	function f:SetEnabled(v) self.enabled = v end
+	function f:CreateFontString()
+		local fs = { text = "" }
+		function fs:SetText(t) self.text = t end
+		return setmetatable(fs, { __index = function() return stub() end })
+	end
 	frames[#frames + 1] = f
 	return setmetatable(f, { __index = function() return stub() end })
 end
 
-local selected, pushes, accepts, declines, isPlayer = 0, {}, 0, 0, true
-local log = { { isHeader = true }, { questID = 11, title = "A" }, { questID = 12, title = "B" }, { questID = 13, title = "C" } }
+local selected, pushes, accepts, declines, isPlayer, inGroup = 0, {}, 0, 0, true, true
+-- quest log: a zone, a dungeon group, a group whose only quest can't be shared
+local log = {
+	{ isHeader = true, title = "Elwynn Forest" },
+	{ questID = 11, title = "Kobold Candles", level = 5 },
+	{ questID = 12, title = "Wolves", level = 6 },
+	{ isHeader = true, title = "The Deadmines" },
+	{ questID = 21, title = "Red Silk Bandanas", level = 18 },
+	{ isHeader = true, title = "Empty" },
+	{ questID = 13, title = "Unshareable", level = 1 },
+}
 GetLocale = function() return "enUS" end
-IsInGroup = function() return true end
+IsInGroup = function() return inGroup end
 print = function(...) printed[#printed + 1] = table.concat({ ... }, " ") end
 wipe = function(t) for k in pairs(t) do t[k] = nil end end
 tinsert = table.insert
-UISpecialFrames, UIParent, SlashCmdList = {}, {}, {}
+UISpecialFrames, UIParent, SlashCmdList, GameTooltip = {}, {}, {}, stub()
 CreateFrame = newFrame
+Enum = { QuestTag = { Dungeon = 1, Raid = 62 } }
+GetQuestDifficultyColor = function() return { r = 1, g = 0.5, b = 0.25 } end
+C_Map = { GetAreaInfo = function(id) return id == 12 and "Elwynn Forest" or nil end }
+QuestieLoader = { _modules = { QuestieDB = {
+	GetQuest = function(id) if id == 11 then return { Starts = { NPC = { 900 } } } end end,
+	GetNPC = function(_, id) return { name = "Marshal McBride", spawns = { [12] = {} } } end,
+	GetQuestTagInfo = function(id) if id == 21 then return 1, "Dungeon" end end,
+} } }
 C_Timer = {
 	After = function(d, fn) timers[#timers + 1] = { d = d, fn = fn } end,
 	NewTimer = function(d, fn) local t = { d = d, fn = fn } timers[#timers + 1] = t function t:Cancel() self.dead = true end return t end,
@@ -36,6 +60,7 @@ C_QuestLog = {
 	GetNumQuestLogEntries = function() return #log end,
 	GetInfo = function(i) return log[i] end,
 	IsPushableQuest = function(id) return id ~= 13 end,
+	IsComplete = function(id) return id == 12 end,
 }
 QuestLogPushQuest = function() pushes[#pushes + 1] = selected end
 -- like Blizzard's: selects the quest, then calls the global QuestLogPushQuest (our wrapper must not re-queue it)
@@ -49,7 +74,9 @@ GetTitleText = function() return "Some quest" end
 AcceptQuest = function() accepts = accepts + 1 end
 DeclineQuest = function() declines = declines + 1 end
 
-dofile("QuestBuffer.lua")
+local ns = {}
+assert(loadfile("QuestBuffer.lua"))("QuestBuffer", ns)
+assert(loadfile("ShareWindow.lua"))("QuestBuffer", ns)
 
 local function run(delay) -- fire pending timers with this delay
 	local todo = {}
@@ -62,7 +89,18 @@ local function eq(a, b, msg) assert(a == b, ("%s: expected %s, got %s"):format(m
 local function event(e, ...)
 	for _, f in ipairs(frames) do if f.handlers.OnEvent then f.handlers.OnEvent(f, e, ...) end end
 end
-local function buttons() local t = {} for _, f in ipairs(frames) do if f.handlers.OnClick then t[#t + 1] = f end end return t end
+local function button(text) -- first frame whose label is exactly `text` (or starts with it)
+	for _, f in ipairs(frames) do
+		if rawget(f, "text") and f.text:sub(1, #text) == text and f.handlers.OnClick then return f end
+	end
+	error("no button " .. text)
+end
+local function visibleRows()
+	local t = {}
+	for _, f in ipairs(frames) do if rawget(f, "check") and f.shown then t[#t + 1] = f end end
+	return t
+end
+local function idle() run(1.5) end -- nobody prompted -> the queue moves on / goes idle
 
 -- sharer: 3 pushes in a row -> only the first goes out, the rest wait for answers
 for _, id in ipairs({ 101, 102, 103 }) do selected = id QuestLogPushQuest() end
@@ -73,36 +111,85 @@ eq(#pushes, 1, "still waiting for Bob")
 event("CHAT_MSG_SYSTEM", "Bob has accepted your quest.")
 eq(#pushes, 2, "Bob answered -> second push")
 eq(pushes[2], 102, "queue order")
-run(1.5) -- nobody was prompted (e.g. already on quest): must not stall
+idle()
 eq(#pushes, 3, "no one prompted -> third push")
-run(1.5)
+idle()
 QuestUtil.ShareQuest(201) -- the quest log's own Share entry point
 eq(#pushes, 4, "QuestUtil.ShareQuest goes through the queue once")
 eq(pushes[4], 201, "ShareQuest pushes that quest")
-run(1.5)
+idle()
 
--- batch window: lists only pushable quests, shares the checked ones through the queue
+-- window: grouped by zone, empty/unshareable groups left out, info on each row
 SlashCmdList.QUESTBUFFER("")
-local rows = {}
-for _, f in ipairs(frames) do if rawget(f, "questID") then rows[#rows + 1] = f end end
-eq(#rows, 2, "header and unpushable quest hidden")
-rows[1]:SetChecked(true)
-rows[2]:SetChecked(true)
-local btn = buttons()
-btn[#btn].handlers.OnClick() -- "Share selected"
-eq(pushes[5], 11, "batch share pushes first checked quest")
+local rows = visibleRows()
+eq(#rows, 5, "2 zone headers + 3 quests (the empty group is hidden)")
+eq(rows[1].group.name, "Elwynn Forest", "first row is the zone")
+eq(rows[2].quest.questID, 11, "quest under its zone")
+assert(rows[2].title.text:find("Kobold Candles", 1, true) and rows[2].title.text:find("[5]", 1, true), "level + title")
+eq(rows[2].sub.text, "Starts: Marshal McBride (Elwynn Forest)", "where it starts, from Questie")
+assert(rows[3].title.text:find("Complete", 1, true), "completed quests are marked")
+assert(rows[5].title.text:find("(Dungeon)", 1, true), "tag shown")
+rows[2].handlers.OnEnter(rows[2]) -- tooltip builds without errors
+
+-- selection: by dungeon, by zone, all / none
+button("Dungeons").handlers.OnClick()
+local shareSel = button("Share selected")
+eq(shareSel.text, "Share selected (1)", "dungeon quests selected")
+button("None").handlers.OnClick()
+eq(shareSel.text, "Share selected (0)", "cleared")
+eq(shareSel.enabled, false, "nothing selected -> disabled")
+rows[1].sel.handlers.OnClick() -- zone "Select"
+eq(shareSel.text, "Share selected (2)", "zone selected")
+rows[1].sel.handlers.OnClick()
+eq(shareSel.text, "Share selected (0)", "zone toggled off")
+
+-- sharing: selected, one zone, everything
+button("Dungeons").handlers.OnClick()
+shareSel.handlers.OnClick()
+eq(pushes[#pushes], 21, "share selected pushes the dungeon quest")
+eq(shareSel.text, "Share selected (0)", "selection cleared after sharing")
+idle()
+rows[1].shr.handlers.OnClick() -- zone "Share"
+eq(pushes[#pushes], 11, "zone share starts with its first quest")
+eq(printed[#printed], "QuestBuffer: 2 shared quest(s) queued.", "announced once for the zone")
+idle() -- 11 done -> 12 goes out
+eq(pushes[#pushes], 12, "second quest of the zone follows")
+idle()
+button("Share all").handlers.OnClick()
+eq(printed[#printed], "QuestBuffer: 3 shared quest(s) queued.", "everything queued")
+button("Share all").handlers.OnClick()
+eq(printed[#printed], "QuestBuffer: 3 shared quest(s) queued.", "already-queued quests are not queued twice")
 SlashCmdList.QUESTBUFFER("clear")
+idle()
+inGroup = false
+button("Share all").handlers.OnClick()
+eq(printed[#printed], "QuestBuffer: you must be in a group to share.", "needs a group")
+inGroup = true
+
+-- collapsing a zone hides its quests
+rows[1].handlers.OnClick()
+eq(#visibleRows(), 3, "Elwynn collapsed: 2 headers + the dungeon quest")
+rows[1].handlers.OnClick()
+eq(#visibleRows(), 5, "expanded again")
+
+-- the log changes while the window is open: refresh once (debounced)
+log[#log + 1] = { questID = 31, title = "New", level = 9 }
+log[6], log[7], log[8] = log[7], log[6], log[8] -- keep "Empty" header with its quest; new quest goes under it
+event("QUEST_LOG_UPDATE")
+event("QUEST_LOG_UPDATE")
+run(0.3)
+eq(#visibleRows(), 7, "new quest and its group appear")
 
 -- receiver: "Accept all" answers now and auto-answers the next shared quests, once each
 event("QUEST_DETAIL")
-btn[1].handlers.OnClick()
+button("Accept all").handlers.OnClick()
 eq(accepts, 1, "accept all answers the pending quest")
 event("QUEST_ACCEPTED")
 event("QUEST_DETAIL")
 event("QUEST_DETAIL") -- Dialogue UI may repeat the event
 run(0.2)
 eq(accepts, 2, "next quest auto-accepted exactly once")
-btn[2].handlers.OnClick() -- "Decline all"
+button("Decline all").handlers.OnClick()
 eq(declines, 1, "decline all answers the pending quest")
 isPlayer = false
 event("QUEST_FINISHED")
@@ -110,5 +197,4 @@ event("QUEST_DETAIL") -- NPC quest: untouched
 run(0.2)
 eq(accepts + declines, 3, "NPC quests are never auto-answered")
 
-print = io.write and function(...) io.write(..., "\n") end
-print("ok")
+io.write("ok\n")

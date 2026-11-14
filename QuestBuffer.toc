@@ -6,3 +6,4 @@
 ## OptionalDeps: DialogueUI
 
 QuestBuffer.lua
+ShareWindow.lua

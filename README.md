@@ -5,7 +5,8 @@ Addon de WoW Forever para compartir varias misiones con el grupo sin que fallen.
 El servidor solo permite **una** misión compartida pendiente por jugador; la segunda recibe "X está ocupado". QuestBuffer arregla esto en los dos lados:
 
 - **Quien comparte:** al pulsar *Compartir* en varias misiones, se ponen en cola y se envía la siguiente cuando todos los destinatarios han aceptado o rechazado la anterior. 
-- **Compartir en lote:** `/qb` abre una ventana con tus misiones compartibles; marcas las que quieras y pulsas *Compartir selección*. Van a la misma cola. `/qb clear` vacía la cola. `/qb debug` imprime los mensajes de sistema mientras la cola espera (para diagnosticar si no avanza).
+- **Compartir en lote:** `/qb` abre una ventana con tu diario agrupado por zona/categoría. Cada misión muestra nivel (con el color de dificultad), etiqueta (mazmorra, élite...) y si está completada; con [Questie](https://www.curseforge.com/wow/addons/questie) cargado, también dónde empieza (NPC y zona). Puedes marcar a mano, *Marcar* una zona entera, *Mazmorras*, *Todas* o *Ninguna*, y compartir la selección, una zona (botón *Compartir* de su cabecera) o todo. Clic en la cabecera de una zona la pliega. Todo va a la misma cola.
+- **Comandos:** `/qb clear` vacía la cola. `/qb debug` imprime los mensajes de sistema mientras la cola espera (para diagnosticar si no avanza).
 - **Quien recibe:** aparece un panel con **Aceptar todas** / **Borrar todas**, que responde también al resto del lote (15 s sin misiones nuevas y vuelve al modo normal; la X lo cancela).
 
 Compatible con [Dialogue UI](https://www.curseforge.com/wow/addons/dialogueui): la misión compartida sigue mostrándose en su ventana; el panel de QuestBuffer va aparte (arrastrable, por encima de la ventana de Dialogue UI) y responde con `AcceptQuest`/`DeclineQuest`, que es lo que usan sus botones.
