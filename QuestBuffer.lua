@@ -32,8 +32,27 @@ end
 local P = { start = pattern("ERR_QUEST_PUSH_SUCCESS_S"), accepted = pattern("ERR_QUEST_PUSH_ACCEPTED_S"),
 	declined = pattern("ERR_QUEST_PUSH_DECLINED_S") }
 
+-- Modern clients (Retail, WoW Forever) share by questID through QuestUtil.ShareQuest; older ones through
+-- the selected quest + QuestLogPushQuest. We wrap both entry points; `pushing` lets our own send pass through.
 local realPush = QuestLogPushQuest
+local realShare = QuestUtil and QuestUtil.ShareQuest
+local canShare = realShare or realPush
+local pushing
 local pump
+
+local function send(questID)
+	pushing = true
+	local ok, err = pcall(function()
+		if realShare then
+			realShare(questID)
+		else
+			C_QuestLog.SetSelectedQuest(questID)
+			realPush()
+		end
+	end)
+	pushing = false
+	if not ok then print(err) end
+end
 
 local function finish()
 	if timer then timer:Cancel() end
@@ -44,8 +63,7 @@ end
 function pump()
 	if waiting or not queue[1] then return end
 	waiting, expected, settled = true, {}, false
-	C_QuestLog.SetSelectedQuest(table.remove(queue, 1))
-	realPush()
+	send(table.remove(queue, 1))
 	timer = C_Timer.NewTimer(ANSWER_TIMEOUT, finish)
 	-- failure replies (already on quest, too far...) arrive instantly; if nobody was actually prompted, move on
 	C_Timer.After(1.5, function()
@@ -60,16 +78,25 @@ local function enqueue(questID)
 	pump()
 end
 
+if realShare then
+	QuestUtil.ShareQuest = function(questID, ...)
+		if pushing or not IsInGroup() then return realShare(questID, ...) end
+		enqueue(questID)
+	end
+end
 if realPush then
 	QuestLogPushQuest = function(...)
 		local questID = C_QuestLog.GetSelectedQuest()
-		if not IsInGroup() or not questID or questID == 0 then return realPush(...) end
+		if pushing or not IsInGroup() or not questID or questID == 0 then return realPush(...) end
 		enqueue(questID)
 	end
 end
 
+local debug
 local function onSystemMessage(text)
-	if not waiting or (issecretvalue and issecretvalue(text)) then return end
+	if issecretvalue and issecretvalue(text) then return end
+	if debug and waiting then print("QuestBuffer system msg: " .. text) end
+	if not waiting then return end
 	local name = P.start and text:match(P.start)
 	if name then expected[name] = true return end
 	name = (P.accepted and text:match(P.accepted)) or (P.declined and text:match(P.declined))
@@ -211,7 +238,7 @@ share:SetSize(160, 24)
 share:SetPoint("BOTTOM", 0, 12)
 share:SetText(L.shareSelected)
 share:SetScript("OnClick", function()
-	if not (realPush and IsInGroup()) then return print(L.cantShare) end
+	if not (canShare and IsInGroup()) then return print(L.cantShare) end
 	for _, row in ipairs(rows) do
 		if row:IsShown() and row:GetChecked() then
 			enqueue(row.questID)
@@ -226,6 +253,13 @@ SlashCmdList.QUESTBUFFER = function(arg)
 	if arg == "clear" then
 		wipe(queue)
 		print(L.cleared)
+	elseif arg == "debug" then
+		-- if the queue never advances on its own, the client's texts differ from these globals
+		debug = not debug
+		for _, key in ipairs({ "ERR_QUEST_PUSH_SUCCESS_S", "ERR_QUEST_PUSH_ACCEPTED_S", "ERR_QUEST_PUSH_DECLINED_S" }) do
+			print(key .. " = " .. tostring(_G[key]))
+		end
+		print("QuestUtil.ShareQuest: " .. tostring(realShare ~= nil) .. ", QuestLogPushQuest: " .. tostring(realPush ~= nil))
 	else
 		win:SetShown(not win:IsShown())
 	end

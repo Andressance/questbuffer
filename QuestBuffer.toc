@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 16001
 ## Title: QuestBuffer
 ## Notes: Shares party quests one by one (queue) and lets you accept or decline all of them at once. Works with Dialogue UI.
 ## Author: Andressance

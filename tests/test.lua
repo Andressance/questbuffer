@@ -38,6 +38,8 @@ C_QuestLog = {
 	IsPushableQuest = function(id) return id ~= 13 end,
 }
 QuestLogPushQuest = function() pushes[#pushes + 1] = selected end
+-- like Blizzard's: selects the quest, then calls the global QuestLogPushQuest (our wrapper must not re-queue it)
+QuestUtil = { ShareQuest = function(id) selected = id QuestLogPushQuest() end }
 ERR_QUEST_PUSH_SUCCESS_S = "Sharing quest with %s"
 ERR_QUEST_PUSH_ACCEPTED_S = "%s has accepted your quest."
 ERR_QUEST_PUSH_DECLINED_S = "%s has declined your quest."
@@ -74,6 +76,10 @@ eq(pushes[2], 102, "queue order")
 run(1.5) -- nobody was prompted (e.g. already on quest): must not stall
 eq(#pushes, 3, "no one prompted -> third push")
 run(1.5)
+QuestUtil.ShareQuest(201) -- the quest log's own Share entry point
+eq(#pushes, 4, "QuestUtil.ShareQuest goes through the queue once")
+eq(pushes[4], 201, "ShareQuest pushes that quest")
+run(1.5)
 
 -- batch window: lists only pushable quests, shares the checked ones through the queue
 SlashCmdList.QUESTBUFFER("")
@@ -84,7 +90,7 @@ rows[1]:SetChecked(true)
 rows[2]:SetChecked(true)
 local btn = buttons()
 btn[#btn].handlers.OnClick() -- "Share selected"
-eq(pushes[4], 11, "batch share pushes first checked quest")
+eq(pushes[5], 11, "batch share pushes first checked quest")
 SlashCmdList.QUESTBUFFER("clear")
 
 -- receiver: "Accept all" answers now and auto-answers the next shared quests, once each
