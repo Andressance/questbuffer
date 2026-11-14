@@ -10,11 +10,13 @@ local AUTO_TIMEOUT = 15 -- receiver: "all" mode ends this long after the last qu
 
 local L = { acceptAll = "Accept all", declineAll = "Decline all", from = "%s shares: %s",
 	autoAccept = "Accepting all shared quests...", autoDecline = "Declining all shared quests...",
-	queued = "QuestBuffer: %d shared quest(s) queued.", cleared = "QuestBuffer: queue cleared." }
+	queued = "QuestBuffer: %d shared quest(s) queued.", cleared = "QuestBuffer: queue cleared.",
+	title = "Share quests", shareSelected = "Share selected", cantShare = "QuestBuffer: you must be in a group to share." }
 if GetLocale():sub(1, 2) == "es" then
 	L = { acceptAll = "Aceptar todas", declineAll = "Borrar todas", from = "%s comparte: %s",
 		autoAccept = "Aceptando todas las misiones compartidas...", autoDecline = "Borrando todas las misiones compartidas...",
-		queued = "QuestBuffer: %d mision(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada." }
+		queued = "QuestBuffer: %d mision(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada.",
+		title = "Compartir misiones", shareSelected = "Compartir seleccion", cantShare = "QuestBuffer: tienes que estar en grupo para compartir." }
 end
 
 ---------------------------------------------------------------- sharer: queue
@@ -52,13 +54,17 @@ function pump()
 	end)
 end
 
+local function enqueue(questID)
+	queue[#queue + 1] = questID
+	print(L.queued:format(#queue + (waiting and 1 or 0)))
+	pump()
+end
+
 if realPush then
 	QuestLogPushQuest = function(...)
 		local questID = C_QuestLog.GetSelectedQuest()
 		if not IsInGroup() or not questID or questID == 0 then return realPush(...) end
-		queue[#queue + 1] = questID
-		print(L.queued:format(#queue + (waiting and 1 or 0)))
-		pump()
+		enqueue(questID)
 	end
 end
 
@@ -77,7 +83,14 @@ end
 local f = CreateFrame("Frame", "QuestBufferFrame", UIParent, "BackdropTemplate")
 f:SetSize(290, 80)
 f:SetPoint("TOP", 0, -140)
-f:SetFrameStrata("FULLSCREEN_DIALOG")
+f:SetFrameStrata("FULLSCREEN_DIALOG") -- same strata as Dialogue UI's window; raised level keeps us on top of it
+f:SetFrameLevel(200)
+f:SetToplevel(true)
+f:SetMovable(true)
+f:EnableMouse(true)
+f:RegisterForDrag("LeftButton")
+f:SetScript("OnDragStart", f.StartMoving)
+f:SetScript("OnDragStop", f.StopMovingOrSizing)
 f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
 	edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize = 16,
 	insets = { left = 4, right = 4, top = 4, bottom = 4 } })
@@ -86,7 +99,7 @@ f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 f.text:SetPoint("TOP", 0, -14)
 f.text:SetWidth(250)
 
-local pending, mode, modeTimer, title, giver
+local pending, scheduled, mode, modeTimer, title, giver
 
 local function refresh()
 	if not (pending or mode) then return f:Hide() end
@@ -125,10 +138,18 @@ for _, e in ipairs({ "QUEST_DETAIL", "QUEST_ACCEPTED", "QUEST_FINISHED", "CHAT_M
 events:SetScript("OnEvent", function(_, event, arg1)
 	if event == "CHAT_MSG_SYSTEM" then return onSystemMessage(arg1) end
 	if event == "QUEST_DETAIL" then
-		pending = UnitIsPlayer("questnpc") -- the "giver" is a player only for shared quests
+		-- the "giver" is a player only for shared quests
+		pending = (UnitIsPlayer("questnpc") or UnitIsPlayer("npc")) and true or false
 		if pending then
-			title, giver = GetTitleText(), UnitName("questnpc")
-			if mode then setMode(mode) C_Timer.After(0.2, answer) end -- restart the "all" window
+			title, giver = GetTitleText(), UnitName("questnpc") or UnitName("npc")
+			if mode then
+				setMode(mode) -- restart the "all" window
+				-- Dialogue UI can fire QUEST_DETAIL repeatedly for one quest: answer once, after it has built its window
+				if not scheduled then
+					scheduled = true
+					C_Timer.After(0.2, function() scheduled = false answer() end)
+				end
+			end
 		end
 	else
 		pending = false
@@ -136,8 +157,76 @@ events:SetScript("OnEvent", function(_, event, arg1)
 	refresh()
 end)
 
+---------------------------------------------------------------- sharer: batch window
+local win = CreateFrame("Frame", "QuestBufferShareFrame", UIParent, "BasicFrameTemplateWithInset")
+win:SetSize(320, 420)
+win:SetPoint("CENTER")
+win:SetMovable(true)
+win:EnableMouse(true)
+win:RegisterForDrag("LeftButton")
+win:SetScript("OnDragStart", win.StartMoving)
+win:SetScript("OnDragStop", win.StopMovingOrSizing)
+win.TitleText:SetText(L.title)
+tinsert(UISpecialFrames, "QuestBufferShareFrame") -- Esc closes it
+
+local scroll = CreateFrame("ScrollFrame", nil, win, "UIPanelScrollFrameTemplate")
+scroll:SetPoint("TOPLEFT", 12, -32)
+scroll:SetPoint("BOTTOMRIGHT", -32, 44)
+local list = CreateFrame("Frame", nil, scroll)
+list:SetSize(250, 1)
+scroll:SetScrollChild(list)
+
+local ROW = 24
+local rows = {}
+local function populate()
+	local n = 0
+	for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+		local info = C_QuestLog.GetInfo(i)
+		if info and not info.isHeader and not info.isHidden and C_QuestLog.IsPushableQuest(info.questID) then
+			n = n + 1
+			local row = rows[n]
+			if not row then
+				row = CreateFrame("CheckButton", nil, list, "UICheckButtonTemplate")
+				row:SetPoint("TOPLEFT", 0, -(n - 1) * ROW)
+				row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+				row.label:SetPoint("LEFT", row, "RIGHT", 2, 0)
+				row.label:SetWidth(200)
+				row.label:SetJustifyH("LEFT")
+				row.label:SetWordWrap(false)
+				rows[n] = row
+			end
+			row.questID = info.questID
+			row.label:SetText(info.title)
+			row:SetChecked(false)
+			row:Show()
+		end
+	end
+	for i = n + 1, #rows do rows[i]:Hide() end
+	list:SetHeight(math.max(n * ROW, 1))
+end
+win:SetScript("OnShow", populate)
+
+local share = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+share:SetSize(160, 24)
+share:SetPoint("BOTTOM", 0, 12)
+share:SetText(L.shareSelected)
+share:SetScript("OnClick", function()
+	if not (realPush and IsInGroup()) then return print(L.cantShare) end
+	for _, row in ipairs(rows) do
+		if row:IsShown() and row:GetChecked() then
+			enqueue(row.questID)
+			row:SetChecked(false)
+		end
+	end
+end)
+win:Hide()
+
 SLASH_QUESTBUFFER1 = "/qb"
-SlashCmdList.QUESTBUFFER = function()
-	wipe(queue)
-	print(L.cleared)
+SlashCmdList.QUESTBUFFER = function(arg)
+	if arg == "clear" then
+		wipe(queue)
+		print(L.cleared)
+	else
+		win:SetShown(not win:IsShown())
+	end
 end
