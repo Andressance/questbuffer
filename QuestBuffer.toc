@@ -5,6 +5,7 @@
 ## Version: 0.1.0
 ## OptionalDeps: DialogueUI, Questie
 ## IconTexture: Interface\AddOns\QuestBuffer\Media\Icon
+## X-License: MIT
 ## X-Website: https://github.com/Andressance/questbuffer
 
 QuestBuffer.lua

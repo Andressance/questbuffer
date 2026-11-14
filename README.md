@@ -22,3 +22,7 @@ Copia la carpeta a `World of Warcraft/_forever_/Interface/AddOns/QuestBuffer` (e
 v0.1.0, sin probar en el juego. Ver `QuestBuffer.lua` para los supuestos (cadenas `ERR_QUEST_PUSH_*`, `QuestLogPushQuest`, unit `questnpc`).
 
 Pruebas de la lógica con el API de WoW simulado: `lua tests/test.lua` (desde la raíz del repo).
+
+## Licencia
+
+MIT, ver [LICENSE](LICENSE).
