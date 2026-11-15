@@ -44,7 +44,7 @@ end
 local P = { start = pattern("ERR_QUEST_PUSH_SUCCESS_S"), accepted = pattern("ERR_QUEST_PUSH_ACCEPTED_S"),
 	declined = pattern("ERR_QUEST_PUSH_DECLINED_S") }
 
--- Modern clients (Retail, WoW Forever) share by questID through QuestUtil.ShareQuest; older ones through
+-- Modern clients (Retail, WoW Forever) share by questID through QuestUtil.ShareQuest; Classic through
 -- the selected quest + QuestLogPushQuest. We wrap both entry points; `pushing` lets our own send pass through.
 local realPush = QuestLogPushQuest
 local realShare = QuestUtil and QuestUtil.ShareQuest
@@ -52,13 +52,25 @@ local canShare = realShare or realPush
 local pushing
 local pump
 
+-- Quest log selection: by questID on Retail/Forever, by log index on Classic.
+local function selectedQuestID()
+	if C_QuestLog and C_QuestLog.GetSelectedQuest then return C_QuestLog.GetSelectedQuest() end
+	local index = GetQuestLogSelection and GetQuestLogSelection() or 0
+	return index > 0 and select(8, GetQuestLogTitle(index)) or nil
+end
+
+local function selectQuest(questID)
+	if C_QuestLog and C_QuestLog.SetSelectedQuest then return C_QuestLog.SetSelectedQuest(questID) end
+	SelectQuestLogEntry(GetQuestLogIndexByID(questID))
+end
+
 local function send(questID)
 	pushing = true
 	local ok, err = pcall(function()
 		if realShare then
 			realShare(questID)
 		else
-			C_QuestLog.SetSelectedQuest(questID)
+			selectQuest(questID)
 			realPush()
 		end
 	end)
@@ -108,7 +120,7 @@ if realShare then
 end
 if realPush then
 	QuestLogPushQuest = function(...)
-		local questID = C_QuestLog.GetSelectedQuest()
+		local questID = selectedQuestID()
 		if pushing or not IsInGroup() or not questID or questID == 0 then return realPush(...) end
 		enqueue(questID)
 	end

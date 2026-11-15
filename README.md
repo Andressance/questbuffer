@@ -2,7 +2,7 @@
 
 <img src="logo.png" alt="QuestBuffer" width="200">
 
-Addon de WoW Forever para compartir varias misiones con el grupo sin que fallen.
+Addon de WoW (Retail, Classic y Forever) para compartir varias misiones con el grupo sin que fallen.
 
 El servidor solo permite **una** misión compartida pendiente por jugador; la segunda recibe "X está ocupado". QuestBuffer arregla esto en los dos lados:
 
@@ -16,11 +16,11 @@ Compatible con [Dialogue UI](https://www.curseforge.com/wow/addons/dialogueui): 
 
 ## Instalación
 
-Copia la carpeta a `World of Warcraft/_forever_/Interface/AddOns/QuestBuffer` (el nombre de la carpeta debe ser `QuestBuffer`).
+Copia la carpeta a `Interface/AddOns/QuestBuffer` de tu versión del juego (`_retail_`, `_classic_`, `_classic_era_` o `_forever_`). El nombre de la carpeta debe ser `QuestBuffer`.
 
 ## Estado
 
-v0.2.0, probado en el juego (WoW Forever). Ver `QuestBuffer.lua` para los supuestos en los que se apoya la cola (cadenas `ERR_QUEST_PUSH_*`, `QuestUtil.ShareQuest`).
+v0.3.0. Probado en el juego en WoW Forever; Retail y Classic usan el mismo código con la API que corresponde a cada cliente, pero aún no se han probado en el juego. Limitación conocida: las misiones bajo una zona plegada en el diario no salen en la ventana; despliega la zona. Ver `QuestBuffer.lua` para los supuestos de la cola (cadenas `ERR_QUEST_PUSH_*`).
 
 Pruebas de la lógica con el API de WoW simulado: `lua tests/test.lua` (desde la raíz del repo).
 

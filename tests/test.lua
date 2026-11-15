@@ -25,6 +25,8 @@ local function newFrame(_, name)
 end
 
 local selected, pushes, accepts, declines, isPlayer, inGroup = 0, {}, 0, 0, true, true
+local now = 0
+GetTime = function() return now end
 -- quest log: a zone, a dungeon group, a group whose only quest can't be shared
 local log = {
 	{ isHeader = true, title = "Elwynn Forest" },
@@ -179,6 +181,10 @@ eq(#visibleRows(), 5, "expanded again")
 -- the log changes while the window is open: refresh once (debounced)
 log[#log + 1] = { questID = 31, title = "New", level = 9 }
 log[6], log[7], log[8] = log[7], log[6], log[8] -- keep "Empty" header with its quest; new quest goes under it
+event("QUEST_LOG_UPDATE") -- right after our own build: an echo, ignored
+run(0.3)
+eq(#visibleRows(), 5, "echo of our own build does not rebuild")
+now = now + 2
 event("QUEST_LOG_UPDATE")
 event("QUEST_LOG_UPDATE")
 run(0.3)
@@ -200,5 +206,48 @@ event("QUEST_FINISHED")
 event("QUEST_DETAIL") -- NPC quest: untouched
 run(0.2)
 eq(accepts + declines, 3, "NPC quests are never auto-answered")
+
+-- ===== Classic: no C_QuestLog log functions and no QuestUtil, legacy globals instead
+frames, timers, pushes, printed = {}, {}, {}, {}
+local legacy = {
+	{ title = "Elwynn Forest", isHeader = true },
+	{ title = "Kobold Candles", level = 5, questID = 11 },
+	{ title = "Wolves", level = 6, questID = 12, complete = 1 },
+	{ title = "The Deadmines", isHeader = true },
+	{ title = "Red Silk Bandanas", level = 18, questID = 21, tag = "Dungeon" },
+	{ title = "Empty", isHeader = true },
+	{ title = "Unshareable", level = 1, questID = 13 },
+}
+local sel = 0
+C_QuestLog, QuestUtil, QuestieLoader, C_Map, GetQuestTagInfo = nil, nil, nil, nil, nil
+LFG_TYPE_DUNGEON, LFG_TYPE_RAID = "Dungeon", "Raid"
+GetNumQuestLogEntries = function() return #legacy, 3 end
+GetQuestLogTitle = function(i)
+	local e = legacy[i]
+	if e then return e.title, e.level, e.tag, e.isHeader, false, e.complete, nil, e.questID end
+end
+SelectQuestLogEntry = function(i) sel = i end
+GetQuestLogSelection = function() return sel end
+GetQuestLogIndexByID = function(id) for i, e in ipairs(legacy) do if e.questID == id then return i end end return 0 end
+GetQuestLogPushable = function() return legacy[sel] and legacy[sel].questID ~= 13 end
+QuestLogPushQuest = function() pushes[#pushes + 1] = legacy[sel].questID end
+ns = {}
+for _, file in ipairs({ "QuestBuffer.lua", "ShareWindow.lua" }) do assert(loadfile(file))("QuestBuffer", ns) end
+
+sel = 3 -- the player has a quest selected in the log
+SlashCmdList.QUESTBUFFER("")
+local lrows = visibleRows()
+eq(#lrows, 5, "classic: same grouping, unshareable quest left out")
+eq(sel, 3, "classic: checking pushability puts the selection back")
+assert(lrows[3].title.text:find("Complete", 1, true), "classic: completion from the log")
+assert(lrows[5].title.text:find("(Dungeon)", 1, true), "classic: tag from the log")
+button("Dungeons").handlers.OnClick()
+eq(button("Share selected").text, "Share selected (1)", "classic: dungeon quests found by tag name")
+button("Share selected").handlers.OnClick()
+eq(pushes[1], 21, "classic: shares by selecting the log entry")
+idle()
+sel = 2 -- the player selects a quest in the log and presses its own Share button
+QuestLogPushQuest()
+eq(pushes[2], 11, "classic: the log's own Share button goes through the queue")
 
 io.write("ok\n")

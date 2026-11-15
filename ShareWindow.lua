@@ -26,8 +26,9 @@ local function tagOf(questID)
 		local ok, id, name = pcall(db.GetQuestTagInfo, questID)
 		if ok and id then return id, name end
 	end
-	local info = C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
+	local info = C_QuestLog and C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
 	if info then return info.tagID, info.tagName end
+	if GetQuestTagInfo then return GetQuestTagInfo(questID) end -- Classic
 end
 
 -- "Marshal McBride (Elwynn Forest)" from Questie's database; nil without Questie or when it doesn't know the quest.
@@ -40,7 +41,7 @@ local function startsAt(questID)
 		local npc = npcID and db:GetNPC(npcID)
 		if not npc or not npc.name then return end
 		local zoneID = npc.spawns and next(npc.spawns)
-		local zone = zoneID and C_Map.GetAreaInfo(zoneID)
+		local zone = zoneID and C_Map and C_Map.GetAreaInfo and C_Map.GetAreaInfo(zoneID)
 		return zone and (npc.name .. " (" .. zone .. ")") or npc.name
 	end)
 	return ok and text or nil
@@ -59,20 +60,58 @@ local function titleText(q)
 	return s
 end
 
+-- The quest log, however the client exposes it: C_QuestLog on Retail/Forever, the legacy globals on Classic.
+-- Entries under a collapsed zone are not listed by either API.
+local function logEntries()
+	local t = {}
+	if C_QuestLog and C_QuestLog.GetInfo and C_QuestLog.GetNumQuestLogEntries then
+		for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+			local info = C_QuestLog.GetInfo(i)
+			if info then
+				t[#t + 1] = { index = i, isHeader = info.isHeader, title = info.title, level = info.level,
+					questID = info.questID, hidden = info.isHidden,
+					complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID) or false }
+			end
+		end
+	else
+		for i = 1, (GetNumQuestLogEntries()) do
+			local title, level, tag, isHeader, _, isComplete, _, questID = GetQuestLogTitle(i)
+			if title then
+				t[#t + 1] = { index = i, isHeader = isHeader, title = title, level = level, questID = questID,
+					tag = type(tag) == "string" and tag or nil, complete = isComplete == 1 }
+			end
+		end
+	end
+	return t
+end
+
+-- Retail/Forever know per questID; Classic only for the selected entry, so select it and put the selection back.
+local function pushable(entry)
+	if C_QuestLog and C_QuestLog.IsPushableQuest then return C_QuestLog.IsPushableQuest(entry.questID) end
+	if not (GetQuestLogPushable and SelectQuestLogEntry) then return true end
+	local previous = GetQuestLogSelection and GetQuestLogSelection() or 0
+	SelectQuestLogEntry(entry.index)
+	local ok = GetQuestLogPushable()
+	if previous > 0 then SelectQuestLogEntry(previous) end
+	return ok and true or false
+end
+
+local lastBuild = -math.huge
+
 local function build()
 	wipe(groups)
 	wipe(allQuests)
 	local group
-	for i = 1, C_QuestLog.GetNumQuestLogEntries() do
-		local info = C_QuestLog.GetInfo(i)
-		if info and info.isHeader then
-			group = { name = info.title, quests = {} }
+	for _, e in ipairs(logEntries()) do
+		if e.isHeader then
+			group = { name = e.title, quests = {} }
 			groups[#groups + 1] = group
-		elseif info and group and not info.isHidden and C_QuestLog.IsPushableQuest(info.questID) then
-			local tagID, tagName = tagOf(info.questID)
-			local q = { questID = info.questID, title = info.title, level = info.level, group = group,
-				tag = tagName, dungeon = tagID and DUNGEON[tagID] or false, sub = startsAt(info.questID),
-				complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID) or false }
+		elseif group and not e.hidden and e.questID and e.questID > 0 and pushable(e) then
+			local tagID, tagName = tagOf(e.questID)
+			tagName = tagName or e.tag
+			local q = { questID = e.questID, title = e.title, level = e.level, group = group, tag = tagName,
+				dungeon = (tagID and DUNGEON[tagID]) or (tagName and (tagName == LFG_TYPE_DUNGEON or tagName == LFG_TYPE_RAID)) or false,
+				sub = startsAt(e.questID), complete = e.complete }
 			group.quests[#group.quests + 1] = q
 			allQuests[#allQuests + 1] = q
 		end
@@ -80,6 +119,7 @@ local function build()
 	local present = {}
 	for _, q in ipairs(allQuests) do present[q.questID] = true end
 	for id in pairs(checked) do if not present[id] then checked[id] = nil end end
+	lastBuild = GetTime()
 end
 
 local function ids(quests, only)
@@ -270,7 +310,8 @@ local dirty
 local events = CreateFrame("Frame")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:SetScript("OnEvent", function()
-	if not win:IsShown() or dirty then return end
+	-- building on Classic selects log entries, which fires this event again: ignore echoes of our own build
+	if not win:IsShown() or dirty or GetTime() - lastBuild < 1 then return end
 	dirty = true
 	C_Timer.After(0.3, function() dirty = false rebuild() end)
 end)
