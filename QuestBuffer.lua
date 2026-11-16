@@ -16,8 +16,9 @@ local L = {
 	from = "%s shares a quest with you:", acceptAll = "Accept all", declineAll = "Decline all",
 	acceptAllTip = "Accepts this quest and every quest shared with you in the next %d seconds.",
 	declineAllTip = "Declines this quest and every quest shared with you in the next %d seconds.",
-	autoAccept = "Accepting shared quests automatically", autoDecline = "Declining shared quests automatically",
-	autoCount = "%d answered. Stops %d s after the last one.", stopAuto = "Stop answering automatically.",
+	autoAccepted = "QuestBuffer: accepted %s (shared by %s) automatically.",
+	autoDeclined = "QuestBuffer: declined %s (shared by %s) automatically.",
+	closeTip = "Hide this panel and answer by hand.",
 	-- chat
 	queued = "QuestBuffer: %d shared quest(s) queued.", cleared = "QuestBuffer: queue cleared.",
 	cantShare = "QuestBuffer: you must be in a group to share.",
@@ -45,8 +46,9 @@ if GetLocale():sub(1, 2) == "es" then
 		from = "%s te comparte una misión:", acceptAll = "Aceptar todas", declineAll = "Rechazar todas",
 		acceptAllTip = "Acepta esta misión y todas las que te compartan en los próximos %d segundos.",
 		declineAllTip = "Rechaza esta misión y todas las que te compartan en los próximos %d segundos.",
-		autoAccept = "Aceptando misiones compartidas", autoDecline = "Rechazando misiones compartidas",
-		autoCount = "%d respondidas. Se para %d s después de la última.", stopAuto = "Dejar de responder automáticamente.",
+		autoAccepted = "QuestBuffer: aceptada automáticamente %s (de %s).",
+		autoDeclined = "QuestBuffer: rechazada automáticamente %s (de %s).",
+		closeTip = "Oculta este panel y responde a mano.",
 		queued = "QuestBuffer: %d misión(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada.",
 		cantShare = "QuestBuffer: tienes que estar en grupo para compartir.",
 		title = "Compartir misiones", selectLabel = "Marcar:", selectAll = "Todas", selectNone = "Ninguna", selectDungeon = "Mazmorras",
@@ -244,28 +246,23 @@ f.line2:SetPoint("TOP", f.line1, "BOTTOM", 0, -4)
 f.line2:SetWidth(260)
 
 local pending, scheduled, mode, modeTimer, title, giver
-local answered = 0
 
+-- The panel only asks about a quest waiting for an answer. Once "all" is chosen it gets out of the way:
+-- the rest of the batch is answered in the background, with a chat line for each quest.
 local function refresh()
-	if not (pending or mode) then return f:Hide() end
-	if mode then
-		f.line1:SetText(mode == "accept" and L.autoAccept or L.autoDecline)
-		f.line2:SetText(L.autoCount:format(answered, AUTO_TIMEOUT))
-	else
-		f.line1:SetText(L.from:format(giver or "?"))
-		f.line2:SetText(title or "?")
-	end
+	if not pending or mode then return f:Hide() end
+	f.line1:SetText(L.from:format(giver or "?"))
+	f.line2:SetText(title or "?")
 	f:Show()
 end
 
-local function answer()
+local function answer(auto)
 	if not pending then return end
-	answered = answered + 1
 	if mode == "accept" then AcceptQuest() else DeclineQuest() end
+	if auto then print((mode == "accept" and L.autoAccepted or L.autoDeclined):format(title or "?", giver or "?")) end
 end
 
 local function setMode(m)
-	if m ~= mode then answered = 0 end
 	mode = m
 	if modeTimer then modeTimer:Cancel() end
 	if m then modeTimer = C_Timer.NewTimer(AUTO_TIMEOUT, function() mode = nil refresh() end) end
@@ -284,8 +281,8 @@ button(L.declineAll, "RIGHT", "decline", L.declineAllTip)
 
 local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", 2, 2)
-close:SetScript("OnClick", function() setMode(nil) refresh() end)
-ns.tip(close, CLOSE or "Close", L.stopAuto)
+close:SetScript("OnClick", function() setMode(nil) f:Hide() end)
+ns.tip(close, CLOSE or "Close", L.closeTip)
 
 ---------------------------------------------------------------- events
 local events = CreateFrame("Frame")
@@ -305,7 +302,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
 				-- Dialogue UI can fire QUEST_DETAIL repeatedly for one quest: answer once, after it has built its window
 				if not scheduled then
 					scheduled = true
-					C_Timer.After(0.2, function() scheduled = false answer() refresh() end)
+					C_Timer.After(0.2, function() scheduled = false answer(true) end)
 				end
 			end
 		end

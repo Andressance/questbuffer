@@ -220,15 +220,24 @@ event("QUEST_LOG_UPDATE")
 run(0.3)
 eq(#visibleRows(), 7, "new quest and its group appear")
 
--- receiver: "Accept all" answers now and auto-answers the next shared quests, once each
+-- receiver: the panel asks about a shared quest; "Accept all" answers it, gets out of the way,
+-- and the rest of the batch is answered in the background with a chat line each
+local panel
+for _, fr in ipairs(frames) do if fr.name == "QuestBufferFrame" then panel = fr end end
+local closeBtn
+for _, fr in ipairs(frames) do if fr.parent == panel and not rawget(fr, "text") then closeBtn = fr end end
 event("QUEST_DETAIL")
+eq(panel.shown, true, "panel shows for a shared quest")
 button("Accept all").handlers.OnClick()
 eq(accepts, 1, "accept all answers the pending quest")
+eq(panel.shown, false, "panel goes away right after Accept all")
 event("QUEST_ACCEPTED")
 event("QUEST_DETAIL")
 event("QUEST_DETAIL") -- Dialogue UI may repeat the event
+eq(panel.shown, false, "while answering automatically the panel stays hidden")
 run(0.2)
 eq(accepts, 2, "next quest auto-accepted exactly once")
+eq(printed[#printed], "QuestBuffer: accepted Some quest (shared by Bob) automatically.", "chat line for each automatic answer")
 button("Decline all").handlers.OnClick()
 eq(declines, 1, "decline all answers the pending quest")
 isPlayer = false
@@ -236,6 +245,16 @@ event("QUEST_FINISHED")
 event("QUEST_DETAIL") -- NPC quest: untouched
 run(0.2)
 eq(accepts + declines, 3, "NPC quests are never auto-answered")
+eq(panel.shown, false, "no panel for NPC quests")
+run(15) -- "all" window ends
+isPlayer = true
+event("QUEST_DETAIL")
+eq(panel.shown, true, "after the window ends, shared quests are asked about again")
+closeBtn.handlers.OnClick()
+eq(panel.shown, false, "the close button hides the panel even with a quest pending")
+run(0.2)
+eq(accepts + declines, 3, "closing does not answer the quest")
+event("QUEST_FINISHED")
 
 -- minimap button: set up on ADDON_LOADED, click opens the window, drag stores the angle, /qb minimap hides it
 event("ADDON_LOADED", "SomethingElse")
