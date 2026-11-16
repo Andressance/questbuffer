@@ -4,3 +4,4 @@ ignore:
   - logo.png
   - dist
   - .gitignore
+  - CURSEFORGE.md

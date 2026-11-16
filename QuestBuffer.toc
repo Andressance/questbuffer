@@ -1,8 +1,8 @@
 ## Interface: 11509, 20506, 30405, 40402, 50504, 16001, 120100, 120105, 120107
 ## Title: QuestBuffer
-## Notes: Shares party quests one by one (queue) and lets you accept or decline all of them at once. Works with Dialogue UI.
+## Notes: Share many quests with your group without "is busy" errors: a share queue, a batch share window, and Accept all / Decline all. Works with Questie and Dialogue UI.
 ## Author: Andressance
-## Version: 0.3.2
+## Version: 0.4.0
 ## OptionalDeps: DialogueUI, Questie
 ## IconTexture: Interface\AddOns\QuestBuffer\Media\Icon
 ## SavedVariables: QuestBufferDB
@@ -12,3 +12,4 @@
 QuestBuffer.lua
 ShareWindow.lua
 MinimapButton.lua
+Options.lua

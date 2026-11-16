@@ -60,24 +60,24 @@ local function titleText(q)
 	return s
 end
 
--- The quest log, however the client exposes it: C_QuestLog on Retail/Forever, the legacy globals on Classic.
--- Entries under a collapsed zone are not listed by either API.
-local function logEntries()
+-- One pass over the quest log, however the client exposes it: C_QuestLog on Retail/Forever, the legacy globals
+-- on Classic. Entries under a collapsed zone are not listed by either API (see logEntries).
+local function readLog()
 	local t = {}
 	if C_QuestLog and C_QuestLog.GetInfo and C_QuestLog.GetNumQuestLogEntries then
 		for i = 1, C_QuestLog.GetNumQuestLogEntries() do
 			local info = C_QuestLog.GetInfo(i)
 			if info then
 				t[#t + 1] = { index = i, isHeader = info.isHeader, title = info.title, level = info.level,
-					questID = info.questID, hidden = info.isHidden,
+					questID = info.questID, hidden = info.isHidden, collapsed = info.isCollapsed,
 					complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID) or false }
 			end
 		end
 	else
 		for i = 1, (GetNumQuestLogEntries()) do
-			local title, level, tag, isHeader, _, isComplete, _, questID = GetQuestLogTitle(i)
+			local title, level, tag, isHeader, isCollapsed, isComplete, _, questID = GetQuestLogTitle(i)
 			if title then
-				t[#t + 1] = { index = i, isHeader = isHeader, title = title, level = level, questID = questID,
+				t[#t + 1] = { index = i, isHeader = isHeader, title = title, level = level, questID = questID, collapsed = isCollapsed,
 					tag = type(tag) == "string" and tag or nil, complete = isComplete == 1 }
 			end
 		end
@@ -96,6 +96,27 @@ local function pushable(entry)
 	return ok and true or false
 end
 
+-- Quests under a collapsed zone are invisible to both APIs, so open every zone while reading and fold back the
+-- ones the player had folded (bottom up; header indexes count folded content, so they don't move).
+local function logEntries()
+	local t = readLog()
+	local folded = {}
+	for _, e in ipairs(t) do if e.isHeader and e.collapsed then folded[e.title] = true end end
+	local refold = next(folded) and ExpandQuestHeader and CollapseQuestHeader
+	if refold then
+		ExpandQuestHeader(0)
+		t = readLog()
+	end
+	-- while every zone is open: on Classic the entry indexes used here are only valid in that state
+	for _, e in ipairs(t) do if not e.isHeader then e.pushable = pushable(e) end end
+	if refold then
+		for i = #t, 1, -1 do
+			if t[i].isHeader and folded[t[i].title] then CollapseQuestHeader(t[i].index) end
+		end
+	end
+	return t
+end
+
 local lastBuild = -math.huge
 
 local function build()
@@ -106,7 +127,7 @@ local function build()
 		if e.isHeader then
 			group = { name = e.title, quests = {} }
 			groups[#groups + 1] = group
-		elseif group and not e.hidden and e.questID and e.questID > 0 and pushable(e) then
+		elseif group and not e.hidden and e.questID and e.questID > 0 and e.pushable then
 			local tagID, tagName = tagOf(e.questID)
 			tagName = tagName or e.tag
 			local q = { questID = e.questID, title = e.title, level = e.level, group = group, tag = tagName,
@@ -140,6 +161,13 @@ win:SetScript("OnDragStart", win.StartMoving)
 win:SetScript("OnDragStop", win.StopMovingOrSizing)
 win.TitleText:SetText(L.title)
 tinsert(UISpecialFrames, "QuestBufferShareFrame") -- Esc closes it
+
+local optionsButton = CreateFrame("Button", nil, win, "UIPanelButtonTemplate") -- in the title bar, left of the close button
+optionsButton:SetSize(80, 18)
+optionsButton:SetPoint("TOPRIGHT", -26, -3)
+optionsButton:SetText(L.options)
+optionsButton:SetScript("OnClick", function() ns.toggleOptions() end)
+ns.tip(optionsButton, L.options, L.optionsTip)
 
 local scroll = CreateFrame("ScrollFrame", nil, win, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 12, -32)
@@ -382,7 +410,7 @@ events:RegisterEvent("GROUP_ROSTER_UPDATE")
 events:SetScript("OnEvent", function(_, event)
 	if not win:IsShown() then return end
 	if event == "GROUP_ROSTER_UPDATE" then return updateCount() end
-	-- building on Classic selects log entries, which fires this event again: ignore echoes of our own build
+	-- building expands/folds zones (and on Classic selects entries), which fires this event again: ignore our own echoes
 	if dirty or GetTime() - lastBuild < 1 then return end
 	dirty = true
 	C_Timer.After(0.3, function() dirty = false rebuild() end)

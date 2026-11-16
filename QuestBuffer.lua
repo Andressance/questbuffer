@@ -9,7 +9,6 @@
 local _, ns = ...
 
 local ANSWER_TIMEOUT = 60 -- sharer: give up waiting for slow/absent recipients (shortcut: fixed, no option)
-local AUTO_TIMEOUT = 15 -- receiver: "all" mode ends this long after the last quest it answered
 
 local L = {
 	-- receiver panel
@@ -40,6 +39,16 @@ local L = {
 	zone = "Zone", level = "Level", starts = "Starts", complete = "Complete",
 	-- minimap button
 	minimapClick = "Click: open the share window", minimapDrag = "Drag: move this button", minimapHide = "/qb minimap: hide this button",
+	minimapRight = "Right-click: options",
+	-- options
+	options = "Options", optionsTip = "Automatic accepting, how long \"Accept all\" lasts, and the minimap button.",
+	optionsTitle = "QuestBuffer options", optAutoHeading = "Accept automatically the quests shared by:",
+	optFriends = "Friends", optFriendsTip = "Characters on your friend list and Battle.net friends.",
+	optGuild = "Guild members", optGuildTip = "Players in your guild.",
+	optLeader = "The group leader", optLeaderTip = "Whoever leads your party or raid.",
+	optTimeoutHeading = "\"Accept all\" / \"Decline all\" keeps answering for:",
+	optTimeoutTip = "How long after the last shared quest it keeps answering by itself.",
+	optOtherHeading = "Other", optMinimap = "Show the minimap button", optMinimapTip = "Same as /qb minimap.",
 }
 if GetLocale():sub(1, 2) == "es" then
 	L = {
@@ -67,9 +76,29 @@ if GetLocale():sub(1, 2) == "es" then
 		cancelQueue = "Cancelar", cancelQueueTip = "Vacía la cola. La misión ya enviada sigue pendiente para quien no haya respondido.",
 		zone = "Zona", level = "Nivel", starts = "Empieza", complete = "Completada",
 		minimapClick = "Clic: abrir la ventana de compartir", minimapDrag = "Arrastrar: mover este botón", minimapHide = "/qb minimap: ocultar este botón",
+		minimapRight = "Clic derecho: opciones",
+		options = "Opciones", optionsTip = "Aceptación automática, cuánto dura \"Aceptar todas\" y el botón del minimapa.",
+		optionsTitle = "Opciones de QuestBuffer", optAutoHeading = "Aceptar automáticamente las misiones que comparten:",
+		optFriends = "Amigos", optFriendsTip = "Personajes de tu lista de amigos y amigos de Battle.net.",
+		optGuild = "Miembros de la hermandad", optGuildTip = "Jugadores de tu hermandad.",
+		optLeader = "El líder del grupo", optLeaderTip = "Quien lidera tu grupo o banda.",
+		optTimeoutHeading = "\"Aceptar todas\" / \"Rechazar todas\" sigue respondiendo durante:",
+		optTimeoutTip = "Cuánto tiempo después de la última misión compartida sigue respondiendo solo.",
+		optOtherHeading = "Otros", optMinimap = "Mostrar el botón del minimapa", optMinimapTip = "Lo mismo que /qb minimap.",
 	}
 end
 ns.L = L
+
+-- Saved settings. Only call this once ADDON_LOADED has fired: before that the saved table is not loaded yet.
+local DEFAULTS = {
+	autoTimeout = 15, -- receiver: "all" mode ends this long after the last quest it answered
+	autoFriends = false, autoGuild = false, autoLeader = false, -- accept shares from these players without asking
+}
+function ns.db()
+	QuestBufferDB = QuestBufferDB or {}
+	for k, v in pairs(DEFAULTS) do if QuestBufferDB[k] == nil then QuestBufferDB[k] = v end end
+	return QuestBufferDB
+end
 
 -- Tooltip with a gold title and a wrapped explanation; either may be a function, evaluated on hover.
 function ns.tip(frame, title, text)
@@ -116,7 +145,13 @@ end
 
 local function selectQuest(questID)
 	if C_QuestLog and C_QuestLog.SetSelectedQuest then return C_QuestLog.SetSelectedQuest(questID) end
-	SelectQuestLogEntry(GetQuestLogIndexByID(questID))
+	local index = GetQuestLogIndexByID(questID)
+	-- shortcut: a quest under a folded zone has no index on Classic, so open all zones (they stay open)
+	if index == 0 and ExpandQuestHeader then
+		ExpandQuestHeader(0)
+		index = GetQuestLogIndexByID(questID)
+	end
+	SelectQuestLogEntry(index)
 end
 
 local function send(questID)
@@ -247,25 +282,46 @@ f.line2:SetWidth(260)
 
 local pending, scheduled, mode, modeTimer, title, giver
 
--- The panel only asks about a quest waiting for an answer. Once "all" is chosen it gets out of the way:
--- the rest of the batch is answered in the background, with a chat line for each quest.
+-- The panel only asks about a quest waiting for an answer. It stays out of the way while a quest is being
+-- answered automatically ("all" mode, or a trusted player), and each automatic answer gets a chat line.
 local function refresh()
-	if not pending or mode then return f:Hide() end
+	if not pending or mode or scheduled then return f:Hide() end
 	f.line1:SetText(L.from:format(giver or "?"))
 	f.line2:SetText(title or "?")
 	f:Show()
 end
 
-local function answer(auto)
+local function answer(how, auto)
 	if not pending then return end
-	if mode == "accept" then AcceptQuest() else DeclineQuest() end
-	if auto then print((mode == "accept" and L.autoAccepted or L.autoDeclined):format(title or "?", giver or "?")) end
+	if how == "accept" then AcceptQuest() else DeclineQuest() end
+	if auto then print((how == "accept" and L.autoAccepted or L.autoDeclined):format(title or "?", giver or "?")) end
+end
+
+-- Dialogue UI can fire QUEST_DETAIL repeatedly for one quest: answer once, after it has built its window.
+local function answerSoon(how)
+	if scheduled then return end
+	scheduled = true
+	C_Timer.After(0.2, function() scheduled = false answer(how, true) end)
 end
 
 local function setMode(m)
 	mode = m
 	if modeTimer then modeTimer:Cancel() end
-	if m then modeTimer = C_Timer.NewTimer(AUTO_TIMEOUT, function() mode = nil refresh() end) end
+	if m then modeTimer = C_Timer.NewTimer(ns.db().autoTimeout, function() mode = nil refresh() end) end
+end
+
+-- Friend, guild member or group leader, as ticked in the options.
+local function trustedGiver()
+	local db = ns.db()
+	local unit = UnitExists("questnpc") and "questnpc" or "npc"
+	local guid = UnitGUID(unit)
+	if db.autoFriends and guid and ((C_FriendList and C_FriendList.IsFriend and C_FriendList.IsFriend(guid))
+		or (C_BattleNet and C_BattleNet.GetAccountInfoByGUID and C_BattleNet.GetAccountInfoByGUID(guid))) then
+		return true
+	end
+	if db.autoGuild and UnitIsInMyGuild(unit) then return true end
+	if db.autoLeader and UnitIsGroupLeader(unit) then return true end
+	return false
 end
 
 local function button(label, anchor, m, tipText)
@@ -273,8 +329,8 @@ local function button(label, anchor, m, tipText)
 	b:SetSize(130, 24)
 	b:SetPoint("BOTTOM" .. anchor, anchor == "LEFT" and 14 or -14, 12)
 	b:SetText(label)
-	b:SetScript("OnClick", function() setMode(m) answer() refresh() end)
-	ns.tip(b, label, tipText:format(AUTO_TIMEOUT))
+	b:SetScript("OnClick", function() setMode(m) answer(m) refresh() end)
+	ns.tip(b, label, function() return tipText:format(ns.db().autoTimeout) end)
 end
 button(L.acceptAll, "LEFT", "accept", L.acceptAllTip)
 button(L.declineAll, "RIGHT", "decline", L.declineAllTip)
@@ -299,11 +355,9 @@ events:SetScript("OnEvent", function(_, event, arg1)
 			title, giver = GetTitleText(), UnitName("questnpc") or UnitName("npc")
 			if mode then
 				setMode(mode) -- restart the "all" window
-				-- Dialogue UI can fire QUEST_DETAIL repeatedly for one quest: answer once, after it has built its window
-				if not scheduled then
-					scheduled = true
-					C_Timer.After(0.2, function() scheduled = false answer(true) end)
-				end
+				answerSoon(mode)
+			elseif trustedGiver() then
+				answerSoon("accept")
 			end
 		end
 	else
@@ -326,6 +380,8 @@ SlashCmdList.QUESTBUFFER = function(arg)
 		print("QuestUtil.ShareQuest: " .. tostring(realShare ~= nil) .. ", QuestLogPushQuest: " .. tostring(realPush ~= nil))
 	elseif arg == "minimap" then
 		ns.toggleMinimap()
+	elseif arg == "options" or arg == "opciones" then
+		ns.toggleOptions()
 	else
 		ns.toggleWindow()
 	end

@@ -38,6 +38,32 @@ local log = {
 	{ isHeader = true, title = "Empty" },
 	{ questID = 13, title = "Unshareable", level = 1 },
 }
+-- What the quest log API lists: quests under a folded zone are left out; headers report whether they are folded.
+local folded = {}
+local function visible(entries, foldedSet)
+	local t, hide = {}, false
+	for _, e in ipairs(entries) do
+		if e.isHeader then
+			hide = foldedSet[e.title] and true or false
+			local h = {}
+			for k, v in pairs(e) do h[k] = v end
+			h.isCollapsed = hide
+			t[#t + 1] = h
+		elseif not hide then
+			t[#t + 1] = e
+		end
+	end
+	return t
+end
+ExpandQuestHeader = function(i) assert(i == 0, "only expand-all is used") for k in pairs(folded) do folded[k] = nil end end
+CollapseQuestHeader = function(i) folded[log[i].title] = true end -- Retail: index counts folded content
+-- who is sharing (receiver side)
+local friend, guildmate, leader = false, false, false
+UnitExists = function() return true end
+UnitGUID = function() return "Player-1-0001" end
+C_FriendList = { IsFriend = function() return friend end }
+UnitIsInMyGuild = function() return guildmate end
+UnitIsGroupLeader = function() return leader end
 GetLocale = function() return "enUS" end
 IsInGroup = function() return inGroup end
 print = function(...) printed[#printed + 1] = table.concat({ ... }, " ") end
@@ -65,8 +91,8 @@ C_Timer = {
 C_QuestLog = {
 	GetSelectedQuest = function() return selected end,
 	SetSelectedQuest = function(id) selected = id end,
-	GetNumQuestLogEntries = function() return #log end,
-	GetInfo = function(i) return log[i] end,
+	GetNumQuestLogEntries = function() return #visible(log, folded) end,
+	GetInfo = function(i) return visible(log, folded)[i] end,
 	IsPushableQuest = function(id) return id ~= 13 end,
 	IsComplete = function(id) return id == 12 end,
 }
@@ -86,6 +112,7 @@ local ns = {}
 assert(loadfile("QuestBuffer.lua"))("QuestBuffer", ns)
 assert(loadfile("ShareWindow.lua"))("QuestBuffer", ns)
 assert(loadfile("MinimapButton.lua"))("QuestBuffer", ns)
+assert(loadfile("Options.lua"))("QuestBuffer", ns)
 
 local function run(delay) -- fire pending timers with this delay
 	local todo = {}
@@ -129,9 +156,12 @@ eq(pushes[4], 201, "ShareQuest pushes that quest")
 idle()
 
 -- window: grouped by zone, empty/unshareable groups left out, info on each row
+folded["Elwynn Forest"] = true -- the player folded this zone in the quest log
 SlashCmdList.QUESTBUFFER("")
 local rows = visibleRows()
-eq(#rows, 5, "2 zone headers + 3 quests (the empty group is hidden)")
+eq(#rows, 5, "2 zone headers + 3 quests (the empty group is hidden), folded zones included")
+eq(folded["Elwynn Forest"], true, "the zone is folded back in the quest log")
+eq(folded["The Deadmines"], nil, "zones that were open stay open")
 eq(rows[1].group.name, "Elwynn Forest", "first row is the zone")
 eq(rows[2].quest.questID, 11, "quest under its zone")
 assert(rows[2].title.text:find("Kobold Candles", 1, true) and rows[2].title.text:find("[5]", 1, true), "level + title")
@@ -256,9 +286,34 @@ run(0.2)
 eq(accepts + declines, 3, "closing does not answer the quest")
 event("QUEST_FINISHED")
 
+-- receiver: quests from trusted players (as ticked in the options) are accepted without asking
+local function sharedBy()
+	event("QUEST_DETAIL")
+	local shown = panel.shown
+	run(0.2)
+	event("QUEST_ACCEPTED")
+	return shown
+end
+friend = true
+eq(sharedBy(), true, "a friend's quest is still asked about while the option is off")
+eq(accepts, 2, "and not accepted")
+ns.db().autoFriends = true
+eq(sharedBy(), false, "friends option: no panel")
+eq(accepts, 3, "friends option: accepted")
+eq(printed[#printed], "QuestBuffer: accepted Some quest (shared by Bob) automatically.", "with a chat line")
+friend = false
+eq(sharedBy(), true, "strangers are still asked about")
+ns.db().autoGuild, guildmate = true, true
+eq(sharedBy(), false, "guild option")
+guildmate, ns.db().autoLeader, leader = false, true, true
+eq(sharedBy(), false, "group leader option")
+leader = false
+eq(accepts, 5, "friend + guild + leader accepted, strangers not")
+ns.db().autoFriends, ns.db().autoGuild, ns.db().autoLeader = false, false, false
+
 -- minimap button: set up on ADDON_LOADED, click opens the window, drag stores the angle, /qb minimap hides it
 event("ADDON_LOADED", "SomethingElse")
-eq(QuestBufferDB, nil, "minimap: ignores other addons")
+eq(QuestBufferDB.angle, nil, "minimap: ignores other addons")
 event("ADDON_LOADED", "QuestBuffer")
 eq(QuestBufferDB.angle, 215, "minimap: default angle")
 local function named(n) for _, f in ipairs(frames) do if f.name == n then return f end end error(n) end
@@ -279,6 +334,34 @@ eq(mb.shown, false, "minimap: /qb minimap hides it")
 eq(QuestBufferDB.hide, true, "minimap: and remembers it")
 SlashCmdList.QUESTBUFFER("minimap")
 eq(mb.shown, true, "minimap: and shows it again")
+mb.handlers.OnClick(mb, "RightButton")
+local optWin = named("QuestBufferOptionsFrame")
+eq(optWin.shown, true, "minimap: right-click opens the options")
+
+-- options: checkboxes write the settings straight away; the duration boxes behave like radio buttons
+local boxes = {}
+for _, fr in ipairs(frames) do if rawget(fr, "get") then boxes[#boxes + 1] = fr end end
+eq(#boxes, 8, "options: friends, guild, leader, 4 durations, minimap")
+local function tick(b, v) b:SetChecked(v) b.handlers.OnClick(b) end
+tick(boxes[1], true)
+eq(ns.db().autoFriends, true, "options: friends ticked")
+tick(boxes[1], false)
+eq(ns.db().autoFriends, false, "options: friends unticked")
+eq(boxes[6].checked, true, "options: 15 s is the default duration")
+tick(boxes[4], true)
+eq(ns.db().autoTimeout, 5, "options: 5 s chosen")
+eq(boxes[6].checked, false, "options: only one duration ticked")
+tick(boxes[4], false) -- clicking the ticked one keeps it
+eq(boxes[4].checked, true, "options: a duration cannot be unticked")
+tick(boxes[8], false)
+eq(mb.shown, false, "options: minimap button hidden")
+tick(boxes[8], true)
+eq(mb.shown, true, "options: and shown")
+boxes[1].handlers.OnEnter(boxes[1])
+SlashCmdList.QUESTBUFFER("options")
+eq(optWin.shown, false, "/qb options toggles the window")
+button("Options").handlers.OnClick()
+eq(optWin.shown, true, "the share window's Options button opens it")
 
 -- receiver panel: no parent, so Dialogue UI hiding/fading UIParent does not take it along; it follows the UI scale
 local panel = named("QuestBufferFrame")
@@ -300,32 +383,38 @@ local legacy = {
 	{ title = "Unshareable", level = 1, questID = 13 },
 }
 local sel = 0
+local legacyFolded = {}
+local function shown() return visible(legacy, legacyFolded) end -- Classic indexes count visible lines only
+ExpandQuestHeader = function(i) assert(i == 0) for k in pairs(legacyFolded) do legacyFolded[k] = nil end end
+CollapseQuestHeader = function(i) legacyFolded[shown()[i].title] = true end
 C_QuestLog, QuestUtil, QuestieLoader, C_Map, GetQuestTagInfo = nil, nil, nil, nil, nil
 LFG_TYPE_DUNGEON, LFG_TYPE_RAID = "Dungeon", "Raid"
-GetNumQuestLogEntries = function() return #legacy, 3 end
+GetNumQuestLogEntries = function() return #shown(), 3 end
 GetQuestLogTitle = function(i)
-	local e = legacy[i]
-	if e then return e.title, e.level, e.tag, e.isHeader, false, e.complete, nil, e.questID end
+	local e = shown()[i]
+	if e then return e.title, e.level, e.tag, e.isHeader, e.isCollapsed, e.complete, nil, e.questID end
 end
 SelectQuestLogEntry = function(i) sel = i end
 GetQuestLogSelection = function() return sel end
-GetQuestLogIndexByID = function(id) for i, e in ipairs(legacy) do if e.questID == id then return i end end return 0 end
-GetQuestLogPushable = function() return legacy[sel] and legacy[sel].questID ~= 13 end
-QuestLogPushQuest = function() pushes[#pushes + 1] = legacy[sel].questID end
+GetQuestLogIndexByID = function(id) for i, e in ipairs(shown()) do if e.questID == id then return i end end return 0 end
+GetQuestLogPushable = function() return shown()[sel] and shown()[sel].questID ~= 13 end
+QuestLogPushQuest = function() pushes[#pushes + 1] = shown()[sel].questID end
 ns = {}
 for _, file in ipairs({ "QuestBuffer.lua", "ShareWindow.lua" }) do assert(loadfile(file))("QuestBuffer", ns) end
 
 sel = 3 -- the player has a quest selected in the log
+legacyFolded["The Deadmines"] = true -- and has folded this zone
 SlashCmdList.QUESTBUFFER("")
 local lrows = visibleRows()
-eq(#lrows, 5, "classic: same grouping, unshareable quest left out")
+eq(#lrows, 5, "classic: same grouping, unshareable quest left out, folded zone included")
+eq(legacyFolded["The Deadmines"], true, "classic: the zone is folded back")
 eq(sel, 3, "classic: checking pushability puts the selection back")
 assert(lrows[3].title.text:find("Complete", 1, true), "classic: completion from the log")
 assert(lrows[5].title.text:find("(Dungeon)", 1, true), "classic: tag from the log")
 button("Dungeons").handlers.OnClick()
 eq(button("Share checked").text, "Share checked (1)", "classic: dungeon quests found by tag name")
 button("Share checked").handlers.OnClick()
-eq(pushes[1], 21, "classic: shares by selecting the log entry")
+eq(pushes[1], 21, "classic: shares a quest from a folded zone by opening it and selecting the entry")
 idle()
 sel = 2 -- the player selects a quest in the log and presses its own Share button
 QuestLogPushQuest()
