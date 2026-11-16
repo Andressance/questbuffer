@@ -341,7 +341,7 @@ eq(optWin.shown, true, "minimap: right-click opens the options")
 -- options: checkboxes write the settings straight away; the duration boxes behave like radio buttons
 local boxes = {}
 for _, fr in ipairs(frames) do if rawget(fr, "get") then boxes[#boxes + 1] = fr end end
-eq(#boxes, 8, "options: friends, guild, leader, 4 durations, minimap")
+eq(#boxes, 11, "options: friends, guild, leader, 4 durations, minimap, language")
 local function tick(b, v) b:SetChecked(v) b.handlers.OnClick(b) end
 tick(boxes[1], true)
 eq(ns.db().autoFriends, true, "options: friends ticked")

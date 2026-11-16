@@ -66,6 +66,7 @@ events:RegisterEvent("ADDON_LOADED")
 events:SetScript("OnEvent", function(_, _, name)
 	if name ~= "QuestBuffer" then return end
 	db = ns.db()
+	ns.setLanguage(db.language)
 	db.angle = db.angle or 215
 	place()
 	b:SetShown(not db.hide)

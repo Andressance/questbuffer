@@ -10,14 +10,14 @@ local _, ns = ...
 
 local ANSWER_TIMEOUT = 60 -- sharer: give up waiting for slow/absent recipients (shortcut: fixed, no option)
 
-local L = {
+local EN = {
 	-- receiver panel
 	from = "%s shares a quest with you:", acceptAll = "Accept all", declineAll = "Decline all",
 	acceptAllTip = "Accepts this quest and every quest shared with you in the next %d seconds.",
 	declineAllTip = "Declines this quest and every quest shared with you in the next %d seconds.",
 	autoAccepted = "QuestBuffer: accepted %s (shared by %s) automatically.",
 	autoDeclined = "QuestBuffer: declined %s (shared by %s) automatically.",
-	closeTip = "Hide this panel and answer by hand.",
+	closeTitle = "Close", closeTip = "Hide this panel and answer by hand.",
 	-- chat
 	queued = "QuestBuffer: %d shared quest(s) queued.", cleared = "QuestBuffer: queue cleared.",
 	cantShare = "QuestBuffer: you must be in a group to share.",
@@ -49,15 +49,15 @@ local L = {
 	optTimeoutHeading = "\"Accept all\" / \"Decline all\" keeps answering for:",
 	optTimeoutTip = "How long after the last shared quest it keeps answering by itself.",
 	optOtherHeading = "Other", optMinimap = "Show the minimap button", optMinimapTip = "Same as /qb minimap.",
+	optLanguageHeading = "Language", optLanguageAuto = "Automatic", optLanguageEnglish = "English", optLanguageSpanish = "Español",
 }
-if GetLocale():sub(1, 2) == "es" then
-	L = {
+local ES = {
 		from = "%s te comparte una misión:", acceptAll = "Aceptar todas", declineAll = "Rechazar todas",
 		acceptAllTip = "Acepta esta misión y todas las que te compartan en los próximos %d segundos.",
 		declineAllTip = "Rechaza esta misión y todas las que te compartan en los próximos %d segundos.",
 		autoAccepted = "QuestBuffer: aceptada automáticamente %s (de %s).",
 		autoDeclined = "QuestBuffer: rechazada automáticamente %s (de %s).",
-		closeTip = "Oculta este panel y responde a mano.",
+		closeTitle = "Cerrar", closeTip = "Oculta este panel y responde a mano.",
 		queued = "QuestBuffer: %d misión(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada.",
 		cantShare = "QuestBuffer: tienes que estar en grupo para compartir.",
 		title = "Compartir misiones", selectLabel = "Marcar:", selectAll = "Todas", selectNone = "Ninguna", selectDungeon = "Mazmorras",
@@ -85,14 +85,26 @@ if GetLocale():sub(1, 2) == "es" then
 		optTimeoutHeading = "\"Aceptar todas\" / \"Rechazar todas\" sigue respondiendo durante:",
 		optTimeoutTip = "Cuánto tiempo después de la última misión compartida sigue respondiendo solo.",
 		optOtherHeading = "Otros", optMinimap = "Mostrar el botón del minimapa", optMinimapTip = "Lo mismo que /qb minimap.",
-	}
-end
+		optLanguageHeading = "Idioma", optLanguageAuto = "Automático", optLanguageEnglish = "English", optLanguageSpanish = "Español",
+}
+
+local L = {}
 ns.L = L
+function ns.setLanguage(choice)
+	local lang = (choice == "es" or choice == "en") and choice or nil
+	if not lang then lang = GetLocale():sub(1, 2) == "es" and "es" or "en" end
+	local source = lang == "es" and ES or EN
+	wipe(L)
+	for k, v in pairs(source) do L[k] = v end
+	if ns.refreshLanguage then ns.refreshLanguage() end
+end
+ns.setLanguage("auto")
 
 -- Saved settings. Only call this once ADDON_LOADED has fired: before that the saved table is not loaded yet.
 local DEFAULTS = {
 	autoTimeout = 15, -- receiver: "all" mode ends this long after the last quest it answered
 	autoFriends = false, autoGuild = false, autoLeader = false, -- accept shares from these players without asking
+	language = "auto",
 }
 function ns.db()
 	QuestBufferDB = QuestBufferDB or {}
@@ -331,14 +343,26 @@ local function button(label, anchor, m, tipText)
 	b:SetText(label)
 	b:SetScript("OnClick", function() setMode(m) answer(m) refresh() end)
 	ns.tip(b, label, function() return tipText:format(ns.db().autoTimeout) end)
+	return b
 end
-button(L.acceptAll, "LEFT", "accept", L.acceptAllTip)
-button(L.declineAll, "RIGHT", "decline", L.declineAllTip)
+local acceptButton = button(L.acceptAll, "LEFT", "accept", L.acceptAllTip)
+local declineButton = button(L.declineAll, "RIGHT", "decline", L.declineAllTip)
 
 local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", 2, 2)
 close:SetScript("OnClick", function() setMode(nil) f:Hide() end)
-ns.tip(close, CLOSE or "Close", L.closeTip)
+ns.tip(close, L.closeTitle, L.closeTip)
+
+local previousRefreshLanguage = ns.refreshLanguage
+ns.refreshLanguage = function()
+	if previousRefreshLanguage then previousRefreshLanguage() end
+	acceptButton:SetText(L.acceptAll)
+	declineButton:SetText(L.declineAll)
+	ns.tip(acceptButton, L.acceptAll, L.acceptAllTip)
+	ns.tip(declineButton, L.declineAll, L.declineAllTip)
+	ns.tip(close, L.closeTitle, L.closeTip)
+	refresh()
+end
 
 ---------------------------------------------------------------- events
 local events = CreateFrame("Frame")

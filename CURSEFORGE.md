@@ -33,6 +33,7 @@ Right-click the minimap button, press **Options** in the share window, or type *
 - who gets their shared quests accepted automatically (friends, guild, group leader);
 - how long *Accept all* / *Decline all* keeps answering (5, 10, 15 or 30 seconds);
 - show or hide the minimap button (it also works with Minimap Button Button and similar collectors).
+- choose **Automatic**, **English** or **Español**; automatic follows the game's language and changes apply immediately.
 
 ## Commands
 
@@ -48,4 +49,4 @@ Bugs and ideas: https://github.com/Andressance/questbuffer/issues
 
 ---
 
-*En español: comparte varias misiones con tu grupo de una vez, sin el error "está ocupado". Ventana `/qb` para elegir qué compartir, panel de Aceptar/Rechazar todas para quien recibe, y opción de aceptar automáticamente lo que compartan amigos, hermandad o el líder del grupo.*
+*En español: comparte varias misiones con tu grupo de una vez, sin el error "está ocupado". Ventana `/qb` para elegir qué compartir, panel de Aceptar/Rechazar todas para quien recibe, aceptación automática configurable para amigos, hermandad o líder del grupo y selector de idioma automático, inglés o español.*

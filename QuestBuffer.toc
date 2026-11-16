@@ -2,7 +2,7 @@
 ## Title: QuestBuffer
 ## Notes: Share many quests with your group without "is busy" errors: a share queue, a batch share window, and Accept all / Decline all. Works with Questie and Dialogue UI.
 ## Author: Andressance
-## Version: 0.4.0
+## Version: 0.5.0
 ## OptionalDeps: DialogueUI, Questie
 ## IconTexture: Interface\AddOns\QuestBuffer\Media\Icon
 ## SavedVariables: QuestBufferDB

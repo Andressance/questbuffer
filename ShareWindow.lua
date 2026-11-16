@@ -356,15 +356,15 @@ local cancel = footer(L.cancelQueue, -14, 80, 80, "BOTTOMRIGHT", function() ns.c
 local selectLabel = win:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 selectLabel:SetPoint("BOTTOMLEFT", 18, 50)
 selectLabel:SetText(L.selectLabel)
-footer(L.selectAll, 82, 44, 84, "BOTTOMLEFT", function()
+local allButton = footer(L.selectAll, 82, 44, 84, "BOTTOMLEFT", function()
 	for _, q in ipairs(allQuests) do checked[q.questID] = true end
 	layout() updateCount()
 end, nil, L.selectAllTip)
-footer(L.selectNone, 168, 44, 84, "BOTTOMLEFT", function()
+local noneButton = footer(L.selectNone, 168, 44, 84, "BOTTOMLEFT", function()
 	wipe(checked)
 	layout() updateCount()
 end, nil, L.selectNoneTip)
-footer(L.selectDungeon, 254, 44, 104, "BOTTOMLEFT", function()
+local dungeonButton = footer(L.selectDungeon, 254, 44, 104, "BOTTOMLEFT", function()
 	wipe(checked)
 	for _, q in ipairs(allQuests) do checked[q.questID] = q.dungeon or nil end
 	layout() updateCount()
@@ -397,6 +397,26 @@ local function rebuild()
 	build()
 	layout()
 	updateCount()
+end
+
+local previousRefreshLanguage = ns.refreshLanguage
+ns.refreshLanguage = function()
+	if previousRefreshLanguage then previousRefreshLanguage() end
+	win.TitleText:SetText(L.title)
+	optionsButton:SetText(L.options)
+	ns.tip(optionsButton, L.options, L.optionsTip)
+	empty:SetText(L.emptyList)
+	selectLabel:SetText(L.selectLabel)
+	cancel:SetText(L.cancelQueue)
+	ns.tip(cancel, L.cancelQueue, L.cancelQueueTip)
+	allButton:SetText(L.selectAll); ns.tip(allButton, L.selectAll, L.selectAllTip)
+	noneButton:SetText(L.selectNone); ns.tip(noneButton, L.selectNone, L.selectNoneTip)
+	dungeonButton:SetText(L.selectDungeon); ns.tip(dungeonButton, L.selectDungeon, L.selectDungeonTip)
+	for _, row in ipairs(rows) do
+		row.shr:SetText(L.shareZone)
+		ns.tip(row.shr, L.shareZone, function() return L.shareZoneTip:format(#row.group.quests, row.group.name) end)
+	end
+	if win:IsShown() then rebuild() else updateCount() end
 end
 
 win:SetScript("OnShow", rebuild)
