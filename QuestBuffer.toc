@@ -2,7 +2,7 @@
 ## Title: QuestBuffer
 ## Notes: Shares party quests one by one (queue) and lets you accept or decline all of them at once. Works with Dialogue UI.
 ## Author: Andressance
-## Version: 0.3.0
+## Version: 0.3.1
 ## OptionalDeps: DialogueUI, Questie
 ## IconTexture: Interface\AddOns\QuestBuffer\Media\Icon
 ## SavedVariables: QuestBufferDB
