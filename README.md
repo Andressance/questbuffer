@@ -20,7 +20,7 @@ Copia la carpeta a `Interface/AddOns/QuestBuffer` de tu versión del juego (`_re
 
 ## Estado
 
-v0.3.1. Probado en el juego en WoW Forever; Retail y Classic usan el mismo código con la API que corresponde a cada cliente, pero aún no se han probado en el juego. Limitación conocida: las misiones bajo una zona plegada en el diario no salen en la ventana; despliega la zona. Ver `QuestBuffer.lua` para los supuestos de la cola (cadenas `ERR_QUEST_PUSH_*`).
+v0.3.2. Probado en el juego en WoW Forever; Retail y Classic usan el mismo código con la API que corresponde a cada cliente, pero aún no se han probado en el juego. Limitación conocida: las misiones bajo una zona plegada en el diario no salen en la ventana; despliega la zona. Ver `QuestBuffer.lua` para los supuestos de la cola (cadenas `ERR_QUEST_PUSH_*`).
 
 Pruebas de la lógica con el API de WoW simulado: `lua tests/test.lua` (desde la raíz del repo).
 
