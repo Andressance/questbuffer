@@ -18,10 +18,10 @@ local function newFrame(_, name)
 	function f:CreateFontString()
 		local fs = { text = "" }
 		function fs:SetText(t) self.text = t end
-		return setmetatable(fs, { __index = function() return stub() end })
+		return setmetatable(fs, { __index = function(_, k) if type(k) == "string" and k:match("^%u") then return stub() end end })
 	end
 	frames[#frames + 1] = f
-	return setmetatable(f, { __index = function() return stub() end })
+	return setmetatable(f, { __index = function(_, k) if type(k) == "string" and k:match("^%u") then return stub() end end })
 end
 
 local selected, pushes, accepts, declines, isPlayer, inGroup = 0, {}, 0, 0, true, true
@@ -137,25 +137,42 @@ assert(rows[3].title.text:find("Complete", 1, true), "completed quests are marke
 assert(rows[5].title.text:find("(Dungeon)", 1, true), "tag shown")
 rows[2].handlers.OnEnter(rows[2]) -- tooltip builds without errors
 
--- selection: by dungeon, by zone, all / none
+-- selection: by dungeon, by zone checkbox, all / none
+local IDLE = "Ready. Quests are sent to your group one at a time."
+eq(ns.statusText(), IDLE, "status: idle")
 button("Dungeons").handlers.OnClick()
-local shareSel = button("Share selected")
-eq(shareSel.text, "Share selected (1)", "dungeon quests selected")
+local shareSel = button("Share checked")
+eq(shareSel.text, "Share checked (1)", "dungeon quests checked")
+eq(button("Share all").text, "Share all (3)", "share all shows how many")
 button("None").handlers.OnClick()
-eq(shareSel.text, "Share selected (0)", "cleared")
-eq(shareSel.enabled, false, "nothing selected -> disabled")
-rows[1].sel.handlers.OnClick() -- zone "Select"
-eq(shareSel.text, "Share selected (2)", "zone selected")
-rows[1].sel.handlers.OnClick()
-eq(shareSel.text, "Share selected (0)", "zone toggled off")
+eq(shareSel.text, "Share checked (0)", "cleared")
+eq(shareSel.enabled, false, "nothing checked -> disabled")
+shareSel.handlers.OnEnter(shareSel) -- tooltip explains why it is disabled, without errors
+rows[1].check.handlers.OnClick(rows[1].check) -- zone checkbox
+eq(shareSel.text, "Share checked (2)", "zone checkbox checks the whole zone")
+eq(rows[1].check.checked, true, "zone checkbox shows checked when all its quests are")
+rows[1].check.handlers.OnClick(rows[1].check)
+eq(shareSel.text, "Share checked (0)", "and unchecks it")
+rows[1].check.handlers.OnEnter(rows[1].check)
+rows[1].shr.handlers.OnEnter(rows[1].shr)
 
--- sharing: selected, one zone, everything
+-- sharing: checked, one zone, everything; the status line follows the queue
 button("Dungeons").handlers.OnClick()
 shareSel.handlers.OnClick()
-eq(pushes[#pushes], 21, "share selected pushes the dungeon quest")
-eq(shareSel.text, "Share selected (0)", "selection cleared after sharing")
-idle()
-rows[1].shr.handlers.OnClick() -- zone "Share"
+eq(pushes[#pushes], 21, "share checked pushes the dungeon quest")
+eq(shareSel.text, "Share checked (0)", "checks cleared after sharing")
+local line1, line2 = ns.statusText()
+assert(line1:find("Red Silk Bandanas", 1, true), "status names the quest being shared")
+eq(line2, nil, "nobody to wait for yet")
+eq(button("Cancel").shown, true, "cancel visible while sharing")
+event("CHAT_MSG_SYSTEM", "Sharing quest with Bob")
+line1, line2 = ns.statusText()
+eq(line2, "Waiting for: Bob", "status says who has to answer")
+run(1.5)
+event("CHAT_MSG_SYSTEM", "Bob has accepted your quest.")
+eq(ns.statusText(), IDLE, "back to idle once Bob answers")
+eq(button("Cancel").shown, false, "cancel hidden when idle")
+rows[1].shr.handlers.OnClick() -- zone "Share zone"
 eq(pushes[#pushes], 11, "zone share starts with its first quest")
 eq(printed[#printed], "QuestBuffer: 2 shared quest(s) queued.", "announced once for the zone")
 idle() -- 11 done -> 12 goes out
@@ -165,12 +182,22 @@ button("Share all").handlers.OnClick()
 eq(printed[#printed], "QuestBuffer: 3 shared quest(s) queued.", "everything queued")
 button("Share all").handlers.OnClick()
 eq(printed[#printed], "QuestBuffer: 3 shared quest(s) queued.", "already-queued quests are not queued twice")
-SlashCmdList.QUESTBUFFER("clear")
+local before = #pushes
+button("Cancel").handlers.OnClick()
 idle()
+eq(#pushes, before, "cancel: nothing else goes out")
+eq(ns.statusText(), IDLE, "idle after cancelling")
+
+-- out of a group: buttons disabled and the status says why
 inGroup = false
+event("GROUP_ROSTER_UPDATE")
+eq(button("Share all").enabled, false, "no group -> share all disabled")
+eq(ns.statusText(), "You are not in a group: join one to share quests.", "status explains it")
 button("Share all").handlers.OnClick()
 eq(printed[#printed], "QuestBuffer: you must be in a group to share.", "needs a group")
 inGroup = true
+event("GROUP_ROSTER_UPDATE")
+eq(button("Share all").enabled, true, "back in a group")
 
 -- collapsing a zone hides its quests
 rows[1].handlers.OnClick()
@@ -207,6 +234,30 @@ event("QUEST_DETAIL") -- NPC quest: untouched
 run(0.2)
 eq(accepts + declines, 3, "NPC quests are never auto-answered")
 
+-- minimap button: set up on ADDON_LOADED, click opens the window, drag stores the angle, /qb minimap hides it
+event("ADDON_LOADED", "SomethingElse")
+eq(QuestBufferDB, nil, "minimap: ignores other addons")
+event("ADDON_LOADED", "QuestBuffer")
+eq(QuestBufferDB.angle, 215, "minimap: default angle")
+local function named(n) for _, f in ipairs(frames) do if f.name == n then return f end end error(n) end
+local mb, shareWin = named("QuestBufferMinimapButton"), named("QuestBufferShareFrame")
+eq(mb.shown, true, "minimap: visible by default")
+mb.handlers.OnEnter(mb) -- tooltip with the queue status builds without errors
+local wasShown = shareWin.shown
+mb.handlers.OnClick()
+eq(shareWin.shown, not wasShown, "minimap: click toggles the share window")
+cursorX, cursorY = 300, 100 -- straight right of the minimap centre
+mb.handlers.OnDragStart(mb)
+mb.handlers.OnUpdate()
+eq(QuestBufferDB.angle, 0, "minimap: drag stores the angle")
+mb.handlers.OnDragStop(mb)
+eq(mb.handlers.OnUpdate, nil, "minimap: drag stops following the cursor")
+SlashCmdList.QUESTBUFFER("minimap")
+eq(mb.shown, false, "minimap: /qb minimap hides it")
+eq(QuestBufferDB.hide, true, "minimap: and remembers it")
+SlashCmdList.QUESTBUFFER("minimap")
+eq(mb.shown, true, "minimap: and shows it again")
+
 -- ===== Classic: no C_QuestLog log functions and no QuestUtil, legacy globals instead
 frames, timers, pushes, printed = {}, {}, {}, {}
 local legacy = {
@@ -242,8 +293,8 @@ eq(sel, 3, "classic: checking pushability puts the selection back")
 assert(lrows[3].title.text:find("Complete", 1, true), "classic: completion from the log")
 assert(lrows[5].title.text:find("(Dungeon)", 1, true), "classic: tag from the log")
 button("Dungeons").handlers.OnClick()
-eq(button("Share selected").text, "Share selected (1)", "classic: dungeon quests found by tag name")
-button("Share selected").handlers.OnClick()
+eq(button("Share checked").text, "Share checked (1)", "classic: dungeon quests found by tag name")
+button("Share checked").handlers.OnClick()
 eq(pushes[1], 21, "classic: shares by selecting the log entry")
 idle()
 sel = 2 -- the player selects a quest in the log and presses its own Share button

@@ -11,28 +11,81 @@ local _, ns = ...
 local ANSWER_TIMEOUT = 60 -- sharer: give up waiting for slow/absent recipients (shortcut: fixed, no option)
 local AUTO_TIMEOUT = 15 -- receiver: "all" mode ends this long after the last quest it answered
 
-local L = { acceptAll = "Accept all", declineAll = "Decline all", from = "%s shares: %s",
-	autoAccept = "Accepting all shared quests...", autoDecline = "Declining all shared quests...",
+local L = {
+	-- receiver panel
+	from = "%s shares a quest with you:", acceptAll = "Accept all", declineAll = "Decline all",
+	acceptAllTip = "Accepts this quest and every quest shared with you in the next %d seconds.",
+	declineAllTip = "Declines this quest and every quest shared with you in the next %d seconds.",
+	autoAccept = "Accepting shared quests automatically", autoDecline = "Declining shared quests automatically",
+	autoCount = "%d answered. Stops %d s after the last one.", stopAuto = "Stop answering automatically.",
+	-- chat
 	queued = "QuestBuffer: %d shared quest(s) queued.", cleared = "QuestBuffer: queue cleared.",
 	cantShare = "QuestBuffer: you must be in a group to share.",
-	title = "Share quests", shareSelected = "Share selected (%d)", shareAll = "Share all",
-	selectAll = "All", selectNone = "None", selectDungeon = "Dungeons", select = "Select", share = "Share",
+	-- share window
+	title = "Share quests", selectLabel = "Check:", selectAll = "All", selectNone = "None", selectDungeon = "Dungeons",
+	selectAllTip = "Check every quest in the list.", selectNoneTip = "Uncheck everything.",
+	selectDungeonTip = "Check only dungeon and raid quests.",
+	shareChecked = "Share checked (%d)", shareAll = "Share all (%d)",
+	shareCheckedTip = "Sends the checked quests to your group one at a time: the next one goes out when everyone has accepted or declined the previous one.",
+	shareAllTip = "Sends every quest in the list to your group, one at a time.",
+	noneChecked = "Tick the box next to a quest to check it.",
+	zoneCheckTip = "Check or uncheck every quest in %s.", collapseTip = "Click to collapse or expand this zone.",
+	shareZone = "Share zone", shareZoneTip = "Sends the %d quest(s) of %s to your group, one at a time.",
+	emptyList = "No quests can be shared.\nQuests under a collapsed zone in your quest log are not listed: expand it.",
+	statusNoGroup = "You are not in a group: join one to share quests.",
+	statusIdle = "Ready. Quests are sent to your group one at a time.",
+	statusSharing = "Sharing |cffffffff%s|r (%d more in queue)", statusWaiting = "Waiting for: %s",
+	cancelQueue = "Cancel", cancelQueueTip = "Empties the queue. The quest already sent stays pending for whoever has not answered yet.",
 	zone = "Zone", level = "Level", starts = "Starts", complete = "Complete",
-	minimapTip = "Click: share quests. Drag: move." }
+	-- minimap button
+	minimapClick = "Click: open the share window", minimapDrag = "Drag: move this button", minimapHide = "/qb minimap: hide this button",
+}
 if GetLocale():sub(1, 2) == "es" then
-	L = { acceptAll = "Aceptar todas", declineAll = "Borrar todas", from = "%s comparte: %s",
-		autoAccept = "Aceptando todas las misiones compartidas...", autoDecline = "Borrando todas las misiones compartidas...",
+	L = {
+		from = "%s te comparte una misión:", acceptAll = "Aceptar todas", declineAll = "Rechazar todas",
+		acceptAllTip = "Acepta esta misión y todas las que te compartan en los próximos %d segundos.",
+		declineAllTip = "Rechaza esta misión y todas las que te compartan en los próximos %d segundos.",
+		autoAccept = "Aceptando misiones compartidas", autoDecline = "Rechazando misiones compartidas",
+		autoCount = "%d respondidas. Se para %d s después de la última.", stopAuto = "Dejar de responder automáticamente.",
 		queued = "QuestBuffer: %d misión(es) compartida(s) en cola.", cleared = "QuestBuffer: cola vaciada.",
 		cantShare = "QuestBuffer: tienes que estar en grupo para compartir.",
-		title = "Compartir misiones", shareSelected = "Compartir selección (%d)", shareAll = "Compartir todas",
-		selectAll = "Todas", selectNone = "Ninguna", selectDungeon = "Mazmorras", select = "Marcar", share = "Compartir",
+		title = "Compartir misiones", selectLabel = "Marcar:", selectAll = "Todas", selectNone = "Ninguna", selectDungeon = "Mazmorras",
+		selectAllTip = "Marca todas las misiones de la lista.", selectNoneTip = "Desmarca todo.",
+		selectDungeonTip = "Marca solo las misiones de mazmorra y banda.",
+		shareChecked = "Compartir marcadas (%d)", shareAll = "Compartir todas (%d)",
+		shareCheckedTip = "Envía las misiones marcadas a tu grupo de una en una: la siguiente sale cuando todos han aceptado o rechazado la anterior.",
+		shareAllTip = "Envía todas las misiones de la lista a tu grupo, de una en una.",
+		noneChecked = "Marca la casilla de una misión para elegirla.",
+		zoneCheckTip = "Marca o desmarca todas las misiones de %s.", collapseTip = "Clic para plegar o desplegar esta zona.",
+		shareZone = "Compartir zona", shareZoneTip = "Envía las %d misión(es) de %s a tu grupo, de una en una.",
+		emptyList = "No hay misiones que se puedan compartir.\nLas misiones de una zona plegada en tu diario no salen: despliégala.",
+		statusNoGroup = "No estás en grupo: únete a uno para compartir misiones.",
+		statusIdle = "Listo. Las misiones se envían a tu grupo de una en una.",
+		statusSharing = "Compartiendo |cffffffff%s|r (%d más en cola)", statusWaiting = "Esperando a: %s",
+		cancelQueue = "Cancelar", cancelQueueTip = "Vacía la cola. La misión ya enviada sigue pendiente para quien no haya respondido.",
 		zone = "Zona", level = "Nivel", starts = "Empieza", complete = "Completada",
-		minimapTip = "Clic: compartir misiones. Arrastrar: mover." }
+		minimapClick = "Clic: abrir la ventana de compartir", minimapDrag = "Arrastrar: mover este botón", minimapHide = "/qb minimap: ocultar este botón",
+	}
 end
 ns.L = L
 
+-- Tooltip with a gold title and a wrapped explanation; either may be a function, evaluated on hover.
+function ns.tip(frame, title, text)
+	if frame.SetMotionScriptsWhileDisabled then frame:SetMotionScriptsWhileDisabled(true) end -- explain disabled buttons too
+	frame:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText(type(title) == "function" and title(self) or title, 1, 0.82, 0)
+		local t = type(text) == "function" and text(self) or text
+		if t then GameTooltip:AddLine(t, 1, 1, 1, true) end
+		GameTooltip:Show()
+	end)
+	frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
 ---------------------------------------------------------------- sharer: queue
 local queue, waiting, expected, settled, timer, current = {}, false, {}, false, nil, nil
+
+local function notify() if ns.onQueueChange then ns.onQueueChange() end end
 
 -- Turn a GlobalString like "%s has declined your quest." into a Lua pattern capturing the name.
 local function pattern(key)
@@ -82,6 +135,7 @@ local function finish()
 	if timer then timer:Cancel() end
 	waiting, current = false, nil
 	pump()
+	notify()
 end
 
 function pump()
@@ -103,13 +157,30 @@ local function enqueue(questID, quiet)
 	queue[#queue + 1] = questID
 	if not quiet then print(L.queued:format(#queue + (waiting and 1 or 0))) end
 	pump()
+	notify()
 end
+
+function ns.canShare() return canShare and IsInGroup() and true or false end
 
 -- Used by the share window: queue several quests, announce once.
 function ns.share(ids)
-	if not (canShare and IsInGroup()) then return print(L.cantShare) end
+	if not ns.canShare() then return print(L.cantShare) end
 	for _, id in ipairs(ids) do enqueue(id, true) end
 	print(L.queued:format(#queue + (waiting and 1 or 0)))
+end
+
+-- The quest out right now (nil when idle), how many wait behind it, and who still has to answer it.
+function ns.status()
+	local names = {}
+	for name in pairs(expected) do names[#names + 1] = name end
+	table.sort(names)
+	return current, #queue, names
+end
+
+function ns.clearQueue()
+	wipe(queue)
+	print(L.cleared)
+	notify()
 end
 
 if realShare then
@@ -132,17 +203,21 @@ local function onSystemMessage(text)
 	if debug and waiting then print("QuestBuffer system msg: " .. text) end
 	if not waiting then return end
 	local name = P.start and text:match(P.start)
-	if name then expected[name] = true return end
+	if name then
+		expected[name] = true
+		return notify()
+	end
 	name = (P.accepted and text:match(P.accepted)) or (P.declined and text:match(P.declined))
 	if name then
 		expected[name] = nil
-		if settled and not next(expected) then finish() end
+		if settled and not next(expected) then return finish() end
+		notify()
 	end
 end
 
 ---------------------------------------------------------------- receiver: panel
 local f = CreateFrame("Frame", "QuestBufferFrame", UIParent, "BackdropTemplate")
-f:SetSize(290, 80)
+f:SetSize(300, 100)
 f:SetPoint("TOP", 0, -140)
 f:SetFrameStrata("FULLSCREEN_DIALOG") -- same strata as Dialogue UI's window; raised level keeps us on top of it
 f:SetFrameLevel(200)
@@ -156,42 +231,56 @@ f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
 	edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize = 16,
 	insets = { left = 4, right = 4, top = 4, bottom = 4 } })
 f:Hide()
-f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-f.text:SetPoint("TOP", 0, -14)
-f.text:SetWidth(250)
+f.line1 = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+f.line1:SetPoint("TOP", 0, -14)
+f.line1:SetWidth(260)
+f.line2 = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+f.line2:SetPoint("TOP", f.line1, "BOTTOM", 0, -4)
+f.line2:SetWidth(260)
 
 local pending, scheduled, mode, modeTimer, title, giver
+local answered = 0
 
 local function refresh()
 	if not (pending or mode) then return f:Hide() end
-	f.text:SetText(mode == "accept" and L.autoAccept or mode == "decline" and L.autoDecline or L.from:format(giver or "?", title or "?"))
+	if mode then
+		f.line1:SetText(mode == "accept" and L.autoAccept or L.autoDecline)
+		f.line2:SetText(L.autoCount:format(answered, AUTO_TIMEOUT))
+	else
+		f.line1:SetText(L.from:format(giver or "?"))
+		f.line2:SetText(title or "?")
+	end
 	f:Show()
 end
 
 local function answer()
 	if not pending then return end
+	answered = answered + 1
 	if mode == "accept" then AcceptQuest() else DeclineQuest() end
 end
 
 local function setMode(m)
+	if m ~= mode then answered = 0 end
 	mode = m
 	if modeTimer then modeTimer:Cancel() end
 	if m then modeTimer = C_Timer.NewTimer(AUTO_TIMEOUT, function() mode = nil refresh() end) end
 end
 
-local function button(label, anchor, m)
+local function button(label, anchor, m, tipText)
 	local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	b:SetSize(125, 24)
+	b:SetSize(130, 24)
 	b:SetPoint("BOTTOM" .. anchor, anchor == "LEFT" and 14 or -14, 12)
 	b:SetText(label)
 	b:SetScript("OnClick", function() setMode(m) answer() refresh() end)
+	ns.tip(b, label, tipText:format(AUTO_TIMEOUT))
 end
-button(L.acceptAll, "LEFT", "accept")
-button(L.declineAll, "RIGHT", "decline")
+button(L.acceptAll, "LEFT", "accept", L.acceptAllTip)
+button(L.declineAll, "RIGHT", "decline", L.declineAllTip)
 
 local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", 2, 2)
 close:SetScript("OnClick", function() setMode(nil) refresh() end)
+ns.tip(close, CLOSE or "Close", L.stopAuto)
 
 ---------------------------------------------------------------- events
 local events = CreateFrame("Frame")
@@ -208,7 +297,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
 				-- Dialogue UI can fire QUEST_DETAIL repeatedly for one quest: answer once, after it has built its window
 				if not scheduled then
 					scheduled = true
-					C_Timer.After(0.2, function() scheduled = false answer() end)
+					C_Timer.After(0.2, function() scheduled = false answer() refresh() end)
 				end
 			end
 		end
@@ -222,8 +311,7 @@ end)
 SLASH_QUESTBUFFER1 = "/qb"
 SlashCmdList.QUESTBUFFER = function(arg)
 	if arg == "clear" then
-		wipe(queue)
-		print(L.cleared)
+		ns.clearQueue()
 	elseif arg == "debug" then
 		-- if the queue never advances on its own, the client's texts differ from these globals
 		debug = not debug

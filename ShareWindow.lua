@@ -5,7 +5,7 @@ local L = ns.L
 
 local WIDTH, ROW_H, ROW_Q = 330, 22, 38 -- quest rows are taller when they carry a second "starts at" line
 local groups, allQuests, checked, collapsed, rows = {}, {}, {}, {}, {}
-local layout, updateCount, shareSel
+local layout, updateCount
 
 local DUNGEON = {}
 for _, key in ipairs({ "Dungeon", "Raid", "Raid10", "Raid25" }) do
@@ -129,8 +129,9 @@ local function ids(quests, only)
 end
 
 ---------------------------------------------------------------- window
+-- Layout, bottom up: [share checked][share all] / "Check:" [All][None][Dungeons] / queue status [Cancel] / list.
 local win = CreateFrame("Frame", "QuestBufferShareFrame", UIParent, "BasicFrameTemplateWithInset")
-win:SetSize(380, 540)
+win:SetSize(380, 570)
 win:SetPoint("CENTER")
 win:SetMovable(true)
 win:EnableMouse(true)
@@ -142,16 +143,40 @@ tinsert(UISpecialFrames, "QuestBufferShareFrame") -- Esc closes it
 
 local scroll = CreateFrame("ScrollFrame", nil, win, "UIPanelScrollFrameTemplate")
 scroll:SetPoint("TOPLEFT", 12, -32)
-scroll:SetPoint("BOTTOMRIGHT", -32, 76)
+scroll:SetPoint("BOTTOMRIGHT", -32, 118)
 local list = CreateFrame("Frame", nil, scroll)
 list:SetSize(WIDTH, 1)
 scroll:SetScrollChild(list)
 
-local function smallButton(parent, label, w)
-	local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-	b:SetSize(w, 20)
-	b:SetText(label)
-	return b
+local empty = win:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+empty:SetPoint("CENTER", scroll, "CENTER")
+empty:SetWidth(WIDTH - 40)
+empty:SetText(L.emptyList)
+
+local function allChecked(quests)
+	for _, q in ipairs(quests) do if not checked[q.questID] then return false end end
+	return #quests > 0
+end
+
+local function toggleCollapse(group)
+	collapsed[group.name] = not collapsed[group.name] or nil
+	layout()
+end
+
+-- Quest rows: the quest's details. Zone rows: what clicking does.
+local function rowTooltip(owner, row)
+	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+	local q = row.quest
+	if q then
+		GameTooltip:SetText(q.title, 1, 1, 1)
+		GameTooltip:AddLine(L.zone .. ": " .. q.group.name, 1, 0.82, 0)
+		GameTooltip:AddLine(L.level .. ": " .. (q.level or "?") .. (q.tag and (" - " .. q.tag) or ""), 0.8, 0.8, 0.8)
+		if q.sub then GameTooltip:AddLine(L.starts .. ": " .. q.sub, 0.8, 0.8, 0.8) end
+	else
+		GameTooltip:SetText(row.group.name, 1, 0.82, 0)
+		GameTooltip:AddLine(L.collapseTip, 1, 1, 1, true)
+	end
+	GameTooltip:Show()
 end
 
 local function getRow(i)
@@ -162,49 +187,51 @@ local function getRow(i)
 	row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
 	row.check:SetSize(24, 24)
 	row.check:SetPoint("TOPLEFT", 0, 1)
+	row.expand = CreateFrame("Button", nil, row)
+	row.expand:SetSize(14, 14)
+	row.expand:SetPoint("TOPLEFT", 26, -4)
+	row.expand:SetHighlightTexture("Interface\\Buttons\\UI-PlusButton-Hilight", "ADD")
 	row.title = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	row.title:SetJustifyH("LEFT")
 	row.title:SetWordWrap(false)
 	row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	row.sub:SetJustifyH("LEFT")
 	row.sub:SetWordWrap(false)
-	row.sel = smallButton(row, L.select, 70)
-	row.sel:SetPoint("TOPRIGHT", -74, 0)
-	row.shr = smallButton(row, L.share, 70)
+	row.shr = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+	row.shr:SetSize(100, 20)
 	row.shr:SetPoint("TOPRIGHT", 0, 0)
+	row.shr:SetText(L.shareZone)
 
 	row.check:SetScript("OnClick", function(self)
-		checked[row.quest.questID] = self:GetChecked() or nil
-		updateCount()
-	end)
-	row.sel:SetScript("OnClick", function()
-		local all = true
-		for _, q in ipairs(row.group.quests) do if not checked[q.questID] then all = false end end
-		for _, q in ipairs(row.group.quests) do checked[q.questID] = (not all) or nil end
+		if row.group then -- zone checkbox: all on, or all off
+			local on = not allChecked(row.group.quests)
+			for _, q in ipairs(row.group.quests) do checked[q.questID] = on or nil end
+		else
+			checked[row.quest.questID] = self:GetChecked() or nil
+		end
 		layout()
 		updateCount()
 	end)
+	row.check:SetScript("OnEnter", function(self)
+		if row.quest then return rowTooltip(self, row) end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(L.zoneCheckTip:format(row.group.name), 1, 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	row.check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	row.expand:SetScript("OnClick", function() toggleCollapse(row.group) end)
 	row.shr:SetScript("OnClick", function() ns.share(ids(row.group.quests)) end)
+	ns.tip(row.shr, L.shareZone, function() return L.shareZoneTip:format(#row.group.quests, row.group.name) end)
 	row:SetScript("OnClick", function()
-		if row.group then -- header: collapse / expand
-			collapsed[row.group.name] = not collapsed[row.group.name] or nil
-			layout()
-		else
+		if row.group then
+			toggleCollapse(row.group)
+		else -- clicking the quest name ticks its box
 			checked[row.quest.questID] = not checked[row.quest.questID] or nil
 			layout()
 			updateCount()
 		end
 	end)
-	row:SetScript("OnEnter", function(self)
-		local q = self.quest
-		if not q then return end
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText(q.title, 1, 1, 1)
-		GameTooltip:AddLine(L.zone .. ": " .. q.group.name, 1, 0.82, 0)
-		GameTooltip:AddLine(L.level .. ": " .. (q.level or "?") .. (q.tag and (" - " .. q.tag) or ""), 0.8, 0.8, 0.8)
-		if q.sub then GameTooltip:AddLine(L.starts .. ": " .. q.sub, 0.8, 0.8, 0.8) end
-		GameTooltip:Show()
-	end)
+	row:SetScript("OnEnter", function(self) rowTooltip(self, self) end)
 	row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	rows[i] = row
 	return row
@@ -217,18 +244,20 @@ local function place(row, y, h, group, quest)
 	row:SetPoint("TOPLEFT", 0, -y)
 	row.title:ClearAllPoints()
 	row.sub:ClearAllPoints()
+	row.check:Show()
 	if group then
-		row.check:Hide()
-		row.sel:Show()
+		local folded = collapsed[group.name]
+		row.check:SetChecked(allChecked(group.quests))
+		row.expand:SetNormalTexture(folded and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+		row.expand:Show()
 		row.shr:Show()
 		row.sub:SetText("")
-		row.title:SetPoint("TOPLEFT", 4, -4)
-		row.title:SetWidth(WIDTH - 154)
-		row.title:SetText(("|cffffd100%s %s (%d)|r"):format(collapsed[group.name] and "[+]" or "[-]", group.name, #group.quests))
+		row.title:SetPoint("TOPLEFT", 44, -5)
+		row.title:SetWidth(WIDTH - 44 - 106)
+		row.title:SetText(("|cffffd100%s|r |cff9d9d9d(%d)|r"):format(group.name, #group.quests))
 	else
-		row.check:Show()
 		row.check:SetChecked(checked[quest.questID] and true or false)
-		row.sel:Hide()
+		row.expand:Hide()
 		row.shr:Hide()
 		row.title:SetPoint("TOPLEFT", 28, -4)
 		row.title:SetWidth(WIDTH - 32)
@@ -245,8 +274,8 @@ function layout()
 	for _, g in ipairs(groups) do
 		if #g.quests > 0 then
 			n = n + 1
-			place(getRow(n), y, ROW_H, g)
-			y = y + ROW_H
+			place(getRow(n), y, ROW_H + 2, g)
+			y = y + ROW_H + 2
 			if not collapsed[g.name] then
 				for _, q in ipairs(g.quests) do
 					local h = q.sub and ROW_Q or ROW_H + 2
@@ -259,48 +288,88 @@ function layout()
 	end
 	for i = n + 1, #rows do rows[i]:Hide() end
 	list:SetHeight(math.max(y, 1))
+	empty:SetShown(#allQuests == 0)
 end
 
-function updateCount()
-	local n = #ids(allQuests, true)
-	shareSel:SetText(L.shareSelected:format(n))
-	shareSel:SetEnabled(n > 0)
+---------------------------------------------------------------- footer
+local function footer(label, x, y, w, anchor, onClick, tipTitle, tipText)
+	local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
+	b:SetSize(w, 24)
+	b:SetPoint(anchor, x, y)
+	b:SetText(label)
+	b:SetScript("OnClick", onClick)
+	ns.tip(b, tipTitle or label, tipText)
+	return b
 end
+
+-- queue status, with a Cancel button while something is being shared
+local status = win:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+status:SetPoint("BOTTOMLEFT", 18, 80)
+status:SetWidth(WIDTH - 100)
+status:SetJustifyH("LEFT")
+
+local function questTitle(id)
+	for _, q in ipairs(allQuests) do if q.questID == id then return q.title end end
+	local t = C_QuestLog and C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(id)
+	return t or ("#" .. id)
+end
+
+-- One or two lines: what is happening, and who is still to answer. Also used by the minimap tooltip.
+function ns.statusText()
+	local current, queued, names = ns.status()
+	if current then
+		return L.statusSharing:format(questTitle(current), queued), #names > 0 and L.statusWaiting:format(table.concat(names, ", ")) or nil
+	end
+	return ns.canShare() and L.statusIdle or L.statusNoGroup
+end
+
+local cancel = footer(L.cancelQueue, -14, 80, 80, "BOTTOMRIGHT", function() ns.clearQueue() end, L.cancelQueue, L.cancelQueueTip)
+
+local selectLabel = win:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+selectLabel:SetPoint("BOTTOMLEFT", 18, 50)
+selectLabel:SetText(L.selectLabel)
+footer(L.selectAll, 82, 44, 84, "BOTTOMLEFT", function()
+	for _, q in ipairs(allQuests) do checked[q.questID] = true end
+	layout() updateCount()
+end, nil, L.selectAllTip)
+footer(L.selectNone, 168, 44, 84, "BOTTOMLEFT", function()
+	wipe(checked)
+	layout() updateCount()
+end, nil, L.selectNoneTip)
+footer(L.selectDungeon, 254, 44, 104, "BOTTOMLEFT", function()
+	wipe(checked)
+	for _, q in ipairs(allQuests) do checked[q.questID] = q.dungeon or nil end
+	layout() updateCount()
+end, nil, L.selectDungeonTip)
+
+local shareSel = footer("", 14, 12, 172, "BOTTOMLEFT", function()
+	ns.share(ids(allQuests, true))
+	wipe(checked)
+	layout() updateCount()
+end, function(self) return self:GetText() end, function()
+	if not ns.canShare() then return L.statusNoGroup end
+	return #ids(allQuests, true) > 0 and L.shareCheckedTip or L.noneChecked
+end)
+local shareAll = footer("", -14, 12, 172, "BOTTOMRIGHT", function() ns.share(ids(allQuests)) end,
+	function(self) return self:GetText() end, function() return ns.canShare() and L.shareAllTip or L.statusNoGroup end)
+
+function updateCount()
+	local n, inGroup = #ids(allQuests, true), ns.canShare()
+	shareSel:SetText(L.shareChecked:format(n))
+	shareSel:SetEnabled(inGroup and n > 0)
+	shareAll:SetText(L.shareAll:format(#allQuests))
+	shareAll:SetEnabled(inGroup and #allQuests > 0)
+	local line1, line2 = ns.statusText()
+	status:SetText(line2 and (line1 .. "\n" .. line2) or line1)
+	cancel:SetShown((ns.status()) ~= nil)
+end
+ns.onQueueChange = updateCount
 
 local function rebuild()
 	build()
 	layout()
 	updateCount()
 end
-
-local function footer(label, x, y, w, anchor, onClick)
-	local b = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
-	b:SetSize(w, 24)
-	b:SetPoint(anchor, x, y)
-	b:SetText(label)
-	b:SetScript("OnClick", onClick)
-	return b
-end
-
-footer(L.selectAll, 14, 44, 110, "BOTTOMLEFT", function()
-	for _, q in ipairs(allQuests) do checked[q.questID] = true end
-	layout() updateCount()
-end)
-footer(L.selectNone, 128, 44, 110, "BOTTOMLEFT", function()
-	wipe(checked)
-	layout() updateCount()
-end)
-footer(L.selectDungeon, 242, 44, 110, "BOTTOMLEFT", function()
-	wipe(checked)
-	for _, q in ipairs(allQuests) do checked[q.questID] = q.dungeon or nil end
-	layout() updateCount()
-end)
-shareSel = footer("", 14, 12, 170, "BOTTOMLEFT", function()
-	ns.share(ids(allQuests, true))
-	wipe(checked)
-	layout() updateCount()
-end)
-footer(L.shareAll, -14, 12, 170, "BOTTOMRIGHT", function() ns.share(ids(allQuests)) end)
 
 win:SetScript("OnShow", rebuild)
 win:Hide()
@@ -309,9 +378,12 @@ win:Hide()
 local dirty
 local events = CreateFrame("Frame")
 events:RegisterEvent("QUEST_LOG_UPDATE")
-events:SetScript("OnEvent", function()
+events:RegisterEvent("GROUP_ROSTER_UPDATE")
+events:SetScript("OnEvent", function(_, event)
+	if not win:IsShown() then return end
+	if event == "GROUP_ROSTER_UPDATE" then return updateCount() end
 	-- building on Classic selects log entries, which fires this event again: ignore echoes of our own build
-	if not win:IsShown() or dirty or GetTime() - lastBuild < 1 then return end
+	if dirty or GetTime() - lastBuild < 1 then return end
 	dirty = true
 	C_Timer.After(0.3, function() dirty = false rebuild() end)
 end)
