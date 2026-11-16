@@ -216,9 +216,14 @@ local function onSystemMessage(text)
 end
 
 ---------------------------------------------------------------- receiver: panel
-local f = CreateFrame("Frame", "QuestBufferFrame", UIParent, "BackdropTemplate")
+-- No parent on purpose: during a dialogue Dialogue UI hides or fades UIParent (its "hide UI" option), and this
+-- panel has to stay visible right then. Dialogue UI's own window is parentless for the same reason.
+-- Without UIParent we copy its scale by hand (and again when the UI scale changes).
+local f = CreateFrame("Frame", "QuestBufferFrame", nil, "BackdropTemplate")
+local function matchScale() f:SetScale(UIParent:GetScale()) end
+matchScale()
 f:SetSize(300, 100)
-f:SetPoint("TOP", 0, -140)
+f:SetPoint("TOP", WorldFrame, "TOP", 0, -140)
 f:SetFrameStrata("FULLSCREEN_DIALOG") -- same strata as Dialogue UI's window; raised level keeps us on top of it
 f:SetFrameLevel(200)
 f:SetToplevel(true)
@@ -284,9 +289,12 @@ ns.tip(close, CLOSE or "Close", L.stopAuto)
 
 ---------------------------------------------------------------- events
 local events = CreateFrame("Frame")
-for _, e in ipairs({ "QUEST_DETAIL", "QUEST_ACCEPTED", "QUEST_FINISHED", "CHAT_MSG_SYSTEM" }) do events:RegisterEvent(e) end
+for _, e in ipairs({ "QUEST_DETAIL", "QUEST_ACCEPTED", "QUEST_FINISHED", "CHAT_MSG_SYSTEM", "UI_SCALE_CHANGED", "DISPLAY_SIZE_CHANGED" }) do
+	events:RegisterEvent(e)
+end
 events:SetScript("OnEvent", function(_, event, arg1)
 	if event == "CHAT_MSG_SYSTEM" then return onSystemMessage(arg1) end
+	if event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then return matchScale() end
 	if event == "QUEST_DETAIL" then
 		-- the "giver" is a player only for shared quests
 		pending = (UnitIsPlayer("questnpc") or UnitIsPlayer("npc")) and true or false

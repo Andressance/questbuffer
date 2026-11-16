@@ -4,8 +4,9 @@
 local function stub() return setmetatable({}, { __index = function() return stub() end, __call = function() return stub() end }) end
 
 local frames, timers, printed = {}, {}, {}
-local function newFrame(_, name)
-	local f = { handlers = {}, shown = true, checked = false, enabled = true, name = name }
+local function newFrame(_, name, parent)
+	local f = { handlers = {}, shown = true, checked = false, enabled = true, name = name, parent = parent }
+	function f:SetScale(v) self.scale = v end
 	function f:SetScript(n, fn) self.handlers[n] = fn end
 	function f:Show() self.shown = true if self.handlers.OnShow then self.handlers.OnShow(self) end end
 	function f:Hide() self.shown = false end
@@ -42,7 +43,9 @@ IsInGroup = function() return inGroup end
 print = function(...) printed[#printed + 1] = table.concat({ ... }, " ") end
 wipe = function(t) for k in pairs(t) do t[k] = nil end end
 tinsert = table.insert
-UISpecialFrames, UIParent, SlashCmdList, GameTooltip = {}, {}, {}, stub()
+local uiScale = 1
+UISpecialFrames, SlashCmdList, GameTooltip, WorldFrame = {}, {}, stub(), {}
+UIParent = { GetScale = function() return uiScale end }
 CreateFrame = newFrame
 local cursorX, cursorY = 0, 0
 Minimap = { GetCenter = function() return 100, 100 end, GetWidth = function() return 140 end, GetEffectiveScale = function() return 1 end }
@@ -257,6 +260,14 @@ eq(mb.shown, false, "minimap: /qb minimap hides it")
 eq(QuestBufferDB.hide, true, "minimap: and remembers it")
 SlashCmdList.QUESTBUFFER("minimap")
 eq(mb.shown, true, "minimap: and shows it again")
+
+-- receiver panel: no parent, so Dialogue UI hiding/fading UIParent does not take it along; it follows the UI scale
+local panel = named("QuestBufferFrame")
+eq(rawget(panel, "parent"), nil, "panel is not a child of UIParent")
+eq(panel.scale, 1, "panel starts at the UI scale")
+uiScale = 0.8
+event("UI_SCALE_CHANGED")
+eq(panel.scale, 0.8, "panel follows UI scale changes")
 
 -- ===== Classic: no C_QuestLog log functions and no QuestUtil, legacy globals instead
 frames, timers, pushes, printed = {}, {}, {}, {}
