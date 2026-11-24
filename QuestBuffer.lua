@@ -167,6 +167,10 @@ local function selectQuest(questID)
 end
 
 local function send(questID)
+	if InCombatLockdown() then
+		print("QuestBuffer: no se puede compartir en combate.")
+		return false
+	end
 	pushing = true
 	local ok, err = pcall(function()
 		if realShare then
@@ -177,7 +181,11 @@ local function send(questID)
 		end
 	end)
 	pushing = false
-	if not ok then print(err) end
+	if not ok then
+		print(err)
+		return false
+	end
+	return true
 end
 
 local function finish()
